@@ -1,6 +1,7 @@
 package entities
 
 type InstanceConfig struct {
+	InstanceID         string            `json:"instance_id"`
 	InstanceType       string            `json:"instance_type"`
 	Tags               map[string]string `json:"tags"`
 	SecurityGroupIDs   []string          `json:"security_group_ids"`

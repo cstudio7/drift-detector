@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log"
-	"strings"
 
 	"github.com/cstudio7/drift-detector/internal/domain/services"
 	"github.com/cstudio7/drift-detector/internal/interfaces/aws"
@@ -14,41 +12,38 @@ import (
 )
 
 func main() {
-	instanceIDs := flag.String("instance-ids", "", "Comma-separated list of EC2 instance IDs")
-	tfStatePath := flag.String("tf-state", "", "Path to Terraform state file")
-	attributes := flag.String("attributes", "instance_type,tags,security_groups", "Comma-separated list of attributes to compare")
-	flag.Parse()
-
-	if *instanceIDs == "" || *tfStatePath == "" {
-		log.Fatal("instance-ids and tf-state are required")
-	}
-
-	// Split comma-separated values
-	instanceIDList := strings.Split(*instanceIDs, ",")
-	attributeList := strings.Split(*attributes, ",")
+	ctx := context.Background()
 
 	// Initialize dependencies
-	ctx := context.Background()
 	driftService := services.NewDriftService()
+
 	awsClient, err := aws.NewEC2Client(ctx)
 	if err != nil {
-		log.Fatalf("Failed to create AWS EC2 client: %v", err)
+		log.Fatalf("Failed to create AWS client: %v", err)
 	}
+
 	tfParser := terraform.NewTFStateParser()
 	logger := logger.NewStdLogger()
 
-	// Create and execute use case
+	// Configuration (replace with your instance IDs and Terraform state file path)
+	instanceIDs := []string{"i-1234567890abcdef0"} // Replace with your EC2 instance ID
+	tfStatePath := "terraform.tfstate"             // Replace with your Terraform state file path
+	attributes := []string{"instance_type", "tags", "security_groups", "subnet_id", "iam_instance_profile"}
+
+	// Create and execute the use case
 	useCase := usecases.NewDetectDriftUseCase(
 		driftService,
 		awsClient,
 		tfParser,
 		logger,
-		instanceIDList,
-		*tfStatePath,
-		attributeList,
+		instanceIDs,
+		tfStatePath,
+		attributes,
 	)
 
 	if err := useCase.Execute(ctx); err != nil {
 		log.Fatalf("Failed to execute drift detection: %v", err)
 	}
+
+	log.Println("Drift detection completed successfully")
 }

@@ -2,16 +2,18 @@ package usecases
 
 import (
 	"context"
+	"sync"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
+	"github.com/cstudio7/drift-detector/internal/domain/services"
 	"github.com/cstudio7/drift-detector/internal/interfaces/aws"
 	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 	"github.com/cstudio7/drift-detector/internal/interfaces/terraform"
 )
 
-// DetectDriftUseCase defines the use case for detecting drift.
+// DetectDriftUseCase handles the drift detection logic.
 type DetectDriftUseCase struct {
-	driftService *entities.DriftService
+	driftService services.DriftService
 	awsClient    aws.EC2Client
 	tfParser     terraform.TFStateParser
 	logger       logger.Logger
@@ -22,7 +24,7 @@ type DetectDriftUseCase struct {
 
 // NewDetectDriftUseCase creates a new DetectDriftUseCase.
 func NewDetectDriftUseCase(
-	driftService *entities.DriftService,
+	driftService services.DriftService,
 	awsClient aws.EC2Client,
 	tfParser terraform.TFStateParser,
 	logger logger.Logger,
@@ -41,44 +43,77 @@ func NewDetectDriftUseCase(
 	}
 }
 
-// Execute runs the drift detection use case.
+// Execute runs the drift detection use case with concurrency.
 func (uc *DetectDriftUseCase) Execute(ctx context.Context) error {
-	// Parse Terraform state
+	// Parse Terraform state (this is a one-time operation, not parallelized)
 	tfConfigs, err := uc.tfParser.ParseTFState(uc.tfStatePath)
 	if err != nil {
 		uc.logger.Error("Failed to parse Terraform state", "error", err)
 		return err
 	}
 
-	// Process each instance ID
-	for _, instanceID := range uc.instanceIDs {
-		// Get AWS configuration
-		awsInstance, err := uc.awsClient.GetInstance(ctx, instanceID)
-		if err != nil {
-			if err == entities.ErrInstanceNotFound {
-				uc.logger.Warn("Instance not found in AWS", "instance_id", instanceID)
-				continue
+	// Set up concurrency constructs
+	const maxWorkers = 5 // Limit the number of concurrent AWS API calls
+	instanceChan := make(chan string, len(uc.instanceIDs))
+	errChan := make(chan error, len(uc.instanceIDs))
+	var wg sync.WaitGroup
+
+	// Start worker pool
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for instanceID := range instanceChan {
+				// Fetch AWS instance
+				instance, err := uc.awsClient.GetInstance(ctx, instanceID)
+				if err != nil {
+					if err == entities.ErrInstanceNotFound {
+						uc.logger.Warn("Instance not found in AWS", "instance_id", instanceID)
+						continue
+					}
+					uc.logger.Error("Failed to get instance from AWS", "instance_id", instanceID, "error", err)
+					errChan <- err
+					return
+				}
+
+				// Convert AWS instance to config
+				awsConfig := uc.awsClient.ToInstanceConfig(instance)
+
+				// Find matching Terraform config
+				var tfConfig *entities.InstanceConfig
+				for _, cfg := range tfConfigs {
+					if cfg.InstanceID == instanceID {
+						tfConfig = &cfg
+						break
+					}
+				}
+
+				// Detect drift
+				if tfConfig != nil {
+					report := uc.driftService.DetectDrift(instanceID, awsConfig, *tfConfig, uc.attributes)
+					if report.HasDrift {
+						uc.logger.Info("Drift detected", "instance_id", instanceID, "changes", report.Changes)
+					}
+				} else {
+					uc.logger.Warn("Instance not found in Terraform state", "instance_id", instanceID)
+				}
 			}
-			uc.logger.Error("Failed to get instance from AWS", "instance_id", instanceID, "error", err)
-			return err
-		}
+		}()
+	}
 
-		awsConfig := uc.awsClient.ToInstanceConfig(awsInstance)
+	// Distribute instance IDs to workers
+	for _, instanceID := range uc.instanceIDs {
+		instanceChan <- instanceID
+	}
+	close(instanceChan)
 
-		// Assume one instance in Terraform state for simplicity (as per original main.go)
-		if len(tfConfigs) == 0 {
-			uc.logger.Warn("No instances found in Terraform state", "instance_id", instanceID)
-			continue
-		}
-		tfConfig := tfConfigs[0] // Use the first instance
+	// Wait for all workers to finish
+	wg.Wait()
+	close(errChan)
 
-		// Detect drift
-		report := uc.driftService.DetectDrift(instanceID, awsConfig, tfConfig, uc.attributes)
-		if report.HasDrift {
-			uc.logger.Info("Drift detected", "instance_id", instanceID, "changes", report.Changes)
-		} else {
-			uc.logger.Info("No drift detected", "instance_id", instanceID)
-		}
+	// Check for any errors from workers
+	if err, ok := <-errChan; ok {
+		return err
 	}
 
 	return nil
