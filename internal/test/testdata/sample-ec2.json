@@ -1,0 +1,18 @@
+{
+  "Reservations": [
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-1234567890abcdef0",
+          "InstanceType": "t2.small",
+          "Tags": [
+            {"Key": "Name", "Value": "prod-instance"}
+          ],
+          "SecurityGroups": [
+            {"GroupId": "sg-12345678"}
+          ]
+        }
+      ]
+    }
+  ]
+}

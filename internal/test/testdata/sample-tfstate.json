@@ -1,0 +1,16 @@
+{
+  "resources": [
+    {
+      "type": "aws_instance",
+      "instances": [
+        {
+          "attributes": {
+            "instance_type": "t2.micro",
+            "tags": {"Name": "test-instance"},
+            "security_groups": ["sg-12345678"]
+          }
+        }
+      ]
+    }
+  ]
+}
