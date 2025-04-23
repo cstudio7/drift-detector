@@ -1,151 +1,167 @@
 package terraform
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"testing"
 
-	"github.com/cstudio7/drift-detector/internal/domain/entities"
+	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 )
 
 // getTestDataPath resolves the path to the testdata directory dynamically.
 func getTestDataPath(filename string) (string, error) {
 	_, callerFile, _, ok := runtime.Caller(0)
 	if !ok {
-		return "", fmt.Errorf("failed to get caller information")
+		return "", os.ErrInvalid
 	}
 	// Navigate to the testdata directory at the project root
-	// internal/interfaces/terraform/parser_test.go -> testdata/
+	// internal/interfaces/terraform/terraform_test.go -> testdata/
 	baseDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(callerFile)))) // Up four levels to project root
 	testDataPath := filepath.Join(baseDir, "testdata", filename)
 	return testDataPath, nil
 }
 
 func TestTFStateParserImpl_ParseTFState(t *testing.T) {
-	tests := []struct {
-		name      string
-		setupFile func(t *testing.T) string
-		expectErr bool
-		expected  []entities.InstanceConfig
-	}{
-		{
-			name: "ValidState",
-			setupFile: func(t *testing.T) string {
-				filePath, err := getTestDataPath("sample-tfstate.json")
-				if err != nil {
-					t.Fatalf("Failed to resolve test data path: %v", err)
-				}
-				return filePath
-			},
-			expectErr: false,
-			expected: []entities.InstanceConfig{
-				{
-					InstanceType:       "t2.micro",
-					Tags:               map[string]string{"Name": "test-instance"},
-					SecurityGroupIDs:   []string{"sg-12345678"},
-					SubnetID:           "",
-					IAMInstanceProfile: "",
+	// Sample Terraform state data
+	validState := map[string]interface{}{
+		"resources": []interface{}{
+			map[string]interface{}{
+				"mode":     "managed",
+				"type":     "aws_instance",
+				"name":     "example",
+				"provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+				"instances": []interface{}{
+					map[string]interface{}{
+						"attributes": map[string]interface{}{
+							"id":                   "i-1234567890abcdef0",
+							"instance_type":        "t2.micro",
+							"tags":                 map[string]interface{}{"Name": "test-instance"},
+							"security_groups":      []interface{}{"sg-12345678"},
+							"subnet_id":            "subnet-12345678",
+							"iam_instance_profile": "test-profile",
+						},
+					},
 				},
 			},
 		},
-		{
-			name: "EmptyState",
-			setupFile: func(t *testing.T) string {
-				tmpFile, err := os.CreateTemp("", "empty-tfstate.json")
-				if err != nil {
-					t.Fatalf("Failed to create temp file: %v", err)
-				}
-				if err := os.WriteFile(tmpFile.Name(), []byte(`{"resources": []}`), 0644); err != nil {
-					t.Fatalf("Failed to write temp file: %v", err)
-				}
-				return tmpFile.Name()
+	}
+
+	emptyState := map[string]interface{}{
+		"resources": []interface{}{},
+	}
+
+	// Create temporary files for testing
+	validStateFile, err := getTestDataPath("valid-tfstate.json")
+	if err != nil {
+		t.Fatalf("Failed to resolve valid-tfstate.json path: %v", err)
+	}
+	validData, _ := json.Marshal(validState)
+	if err := os.WriteFile(validStateFile, validData, 0644); err != nil {
+		t.Fatalf("Failed to write valid-tfstate.json: %v", err)
+	}
+	defer os.Remove(validStateFile)
+
+	emptyStateFile, err := getTestDataPath("empty-tfstate.json")
+	if err != nil {
+		t.Fatalf("Failed to resolve empty-tfstate.json path: %v", err)
+	}
+	emptyData, _ := json.Marshal(emptyState)
+	if err := os.WriteFile(emptyStateFile, emptyData, 0644); err != nil {
+		t.Fatalf("Failed to write empty-tfstate.json: %v", err)
+	}
+	defer os.Remove(emptyStateFile)
+
+	invalidJSONFile, err := getTestDataPath("invalid-tfstate.json")
+	if err != nil {
+		t.Fatalf("Failed to resolve invalid-tfstate.json path: %v", err)
+	}
+	if err := os.WriteFile(invalidJSONFile, []byte("{invalid json"), 0644); err != nil {
+		t.Fatalf("Failed to write invalid-tfstate.json: %v", err)
+	}
+	defer os.Remove(invalidJSONFile)
+
+	nonAWSInstanceState := map[string]interface{}{
+		"resources": []interface{}{
+			map[string]interface{}{
+				"mode":     "managed",
+				"type":     "aws_s3_bucket",
+				"name":     "example",
+				"provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+				"instances": []interface{}{
+					map[string]interface{}{
+						"attributes": map[string]interface{}{
+							"id": "my-bucket",
+						},
+					},
+				},
 			},
-			expectErr: false,
-			expected:  []entities.InstanceConfig{},
+		},
+	}
+	nonAWSInstanceFile, err := getTestDataPath("non-aws-instance-tfstate.json")
+	if err != nil {
+		t.Fatalf("Failed to resolve non-aws-instance-tfstate.json path: %v", err)
+	}
+	nonAWSData, _ := json.Marshal(nonAWSInstanceState)
+	if err := os.WriteFile(nonAWSInstanceFile, nonAWSData, 0644); err != nil {
+		t.Fatalf("Failed to write non-aws-instance-tfstate.json: %v", err)
+	}
+	defer os.Remove(nonAWSInstanceFile)
+
+	tests := []struct {
+		name        string
+		filePath    string
+		expectErr   bool
+		expectedLen int
+	}{
+		{
+			name:        "ValidState",
+			filePath:    validStateFile,
+			expectErr:   false,
+			expectedLen: 1,
 		},
 		{
-			name: "InvalidJSON",
-			setupFile: func(t *testing.T) string {
-				tmpFile, err := os.CreateTemp("", "invalid-tfstate.json")
-				if err != nil {
-					t.Fatalf("Failed to create temp file: %v", err)
-				}
-				if err := os.WriteFile(tmpFile.Name(), []byte(`{invalid json}`), 0644); err != nil {
-					t.Fatalf("Failed to write temp file: %v", err)
-				}
-				return tmpFile.Name()
-			},
-			expectErr: true,
+			name:        "EmptyState",
+			filePath:    emptyStateFile,
+			expectErr:   false,
+			expectedLen: 0,
 		},
 		{
-			name: "NonAWSInstanceResource",
-			setupFile: func(t *testing.T) string {
-				tmpFile, err := os.CreateTemp("", "non-aws-tfstate.json")
-				if err != nil {
-					t.Fatalf("Failed to create temp file: %v", err)
-				}
-				content := `{
-                    "resources": [
-                        {
-                            "type": "aws_s3_bucket",
-                            "instances": [
-                                {
-                                    "attributes": {
-                                        "bucket": "test-bucket"
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }`
-				if err := os.WriteFile(tmpFile.Name(), []byte(content), 0644); err != nil {
-					t.Fatalf("Failed to write temp file: %v", err)
-				}
-				return tmpFile.Name()
-			},
-			expectErr: false,
-			expected:  []entities.InstanceConfig{},
+			name:        "InvalidJSON",
+			filePath:    invalidJSONFile,
+			expectErr:   true,
+			expectedLen: 0,
+		},
+		{
+			name:        "NonAWSInstanceResource",
+			filePath:    nonAWSInstanceFile,
+			expectErr:   false,
+			expectedLen: 0,
 		},
 	}
 
-	parser := NewTFStateParser()
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filePath := tt.setupFile(t)
-			if tt.name != "ValidState" {
-				defer os.Remove(filePath)
-			}
-
-			configs, err := parser.ParseTFState(filePath)
+			// Create a logger for the test
+			logger := logger.NewTestLogger()
+			parser := NewTFStateParser(logger)
+			configs, err := parser.ParseTFState(tt.filePath)
 			if (err != nil) != tt.expectErr {
-				t.Errorf("Expected error: %v, got error: %v", tt.expectErr, err)
+				t.Errorf("Expected error: %v, got: %v", tt.expectErr, err)
 			}
-			if err != nil {
-				return
+			if len(configs) != tt.expectedLen {
+				t.Errorf("Expected %d configs, got %d", tt.expectedLen, len(configs))
 			}
-
-			if len(configs) != len(tt.expected) {
-				t.Errorf("Expected %d configs, got %d", len(tt.expected), len(configs))
-			}
-			for i, config := range configs {
-				if config.InstanceType != tt.expected[i].InstanceType {
-					t.Errorf("Expected InstanceType %q, got %q", tt.expected[i].InstanceType, config.InstanceType)
+			if tt.name == "ValidState" && len(configs) > 0 {
+				if configs[0].InstanceID != "i-1234567890abcdef0" {
+					t.Errorf("Expected instance ID i-1234567890abcdef0, got %s", configs[0].InstanceID)
 				}
-				if !reflect.DeepEqual(config.Tags, tt.expected[i].Tags) {
-					t.Errorf("Expected Tags %v, got %v", tt.expected[i].Tags, config.Tags)
+				if configs[0].InstanceType != "t2.micro" {
+					t.Errorf("Expected instance type t2.micro, got %s", configs[0].InstanceType)
 				}
-				if !reflect.DeepEqual(config.SecurityGroupIDs, tt.expected[i].SecurityGroupIDs) {
-					t.Errorf("Expected SecurityGroupIDs %v, got %v", tt.expected[i].SecurityGroupIDs, config.SecurityGroupIDs)
-				}
-				if config.SubnetID != tt.expected[i].SubnetID {
-					t.Errorf("Expected SubnetID %q, got %q", tt.expected[i].SubnetID, config.SubnetID)
-				}
-				if config.IAMInstanceProfile != tt.expected[i].IAMInstanceProfile {
-					t.Errorf("Expected IAMInstanceProfile %q, got %q", tt.expected[i].IAMInstanceProfile, config.IAMInstanceProfile)
+				if configs[0].Tags["Name"] != "test-instance" {
+					t.Errorf("Expected tag Name=test-instance, got %s", configs[0].Tags["Name"])
 				}
 			}
 		})

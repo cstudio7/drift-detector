@@ -88,7 +88,6 @@ func (uc *DetectDriftUseCase) Execute(ctx context.Context) error {
 					}
 				}
 
-				// Detect drift
 				if tfConfig != nil {
 					report := uc.driftService.DetectDrift(instanceID, awsConfig, *tfConfig, uc.attributes)
 					if report.HasDrift {
