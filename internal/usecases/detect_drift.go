@@ -1,119 +1,113 @@
 package usecases
 
 import (
-	"context"
-	"sync"
+	"fmt"
+	"reflect"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
-	"github.com/cstudio7/drift-detector/internal/domain/services"
 	"github.com/cstudio7/drift-detector/internal/interfaces/aws"
 	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 	"github.com/cstudio7/drift-detector/internal/interfaces/terraform"
 )
 
-// DetectDriftUseCase handles the drift detection logic.
-type DetectDriftUseCase struct {
-	driftService services.DriftService
-	awsClient    aws.EC2Client
-	tfParser     terraform.TFStateParser
-	logger       logger.Logger
-	instanceIDs  []string
-	tfStatePath  string
-	attributes   []string
+// DriftDetector is responsible for detecting drift between AWS and Terraform state.
+type DriftDetector struct {
+	awsClient aws.AWSClient
+	tfParser  terraform.TFStateParser
+	logger    logger.Logger
 }
 
-// NewDetectDriftUseCase creates a new DetectDriftUseCase.
-func NewDetectDriftUseCase(
-	driftService services.DriftService,
-	awsClient aws.EC2Client,
-	tfParser terraform.TFStateParser,
-	logger logger.Logger,
-	instanceIDs []string,
-	tfStatePath string,
-	attributes []string,
-) *DetectDriftUseCase {
-	return &DetectDriftUseCase{
-		driftService: driftService,
-		awsClient:    awsClient,
-		tfParser:     tfParser,
-		logger:       logger,
-		instanceIDs:  instanceIDs,
-		tfStatePath:  tfStatePath,
-		attributes:   attributes,
+// NewDriftDetector creates a new DriftDetector.
+func NewDriftDetector(awsClient aws.AWSClient, logger logger.Logger) *DriftDetector {
+	return &DriftDetector{
+		awsClient: awsClient,
+		tfParser:  terraform.NewTFStateParser(logger),
+		logger:    logger,
 	}
 }
 
-// Execute runs the drift detection use case with concurrency.
-func (uc *DetectDriftUseCase) Execute(ctx context.Context) error {
-	// Parse Terraform state (this is a one-time operation, not parallelized)
-	tfConfigs, err := uc.tfParser.ParseTFState(uc.tfStatePath)
+// DetectDrift detects drift between AWS and Terraform state.
+func (d *DriftDetector) DetectDrift(tfStateFile string) error {
+	// Fetch AWS instance configurations
+	awsConfigs, err := d.awsClient.FetchInstanceConfigs()
 	if err != nil {
-		uc.logger.Error("Failed to parse Terraform state", "error", err)
-		return err
+		return fmt.Errorf("failed to fetch AWS configs: %w", err)
 	}
 
-	// Set up concurrency constructs
-	const maxWorkers = 5 // Limit the number of concurrent AWS API calls
-	instanceChan := make(chan string, len(uc.instanceIDs))
-	errChan := make(chan error, len(uc.instanceIDs))
-	var wg sync.WaitGroup
+	// Parse Terraform state
+	tfConfigs, err := d.tfParser.ParseTFState(tfStateFile)
+	if err != nil {
+		return fmt.Errorf("failed to parse Terraform state: %w", err)
+	}
 
-	// Start worker pool
-	for i := 0; i < maxWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for instanceID := range instanceChan {
-				// Fetch AWS instance
-				instance, err := uc.awsClient.GetInstance(ctx, instanceID)
-				if err != nil {
-					if err == entities.ErrInstanceNotFound {
-						uc.logger.Warn("Instance not found in AWS", "instance_id", instanceID)
-						continue
-					}
-					uc.logger.Error("Failed to get instance from AWS", "instance_id", instanceID, "error", err)
-					errChan <- err
-					return
+	d.logger.Info("Parsed Terraform configs", "count", len(tfConfigs))
+
+	// Compare AWS and Terraform configs
+	for _, awsConfig := range awsConfigs {
+		d.logger.Info("AWS config", "instance_id", awsConfig.InstanceID, "instance_type", awsConfig.InstanceType)
+
+		var matched bool
+		for _, tfConfig := range tfConfigs {
+			d.logger.Info("Terraform config", "instance_id", tfConfig.InstanceID)
+
+			if awsConfig.InstanceID == tfConfig.InstanceID {
+				matched = true
+				d.logger.Info("Comparing", "aws_instance_id", awsConfig.InstanceID, "tf_instance_id", tfConfig.InstanceID)
+
+				// Compare the configurations
+				if !reflect.DeepEqual(awsConfig, tfConfig) {
+					diff := compareConfigs(awsConfig, tfConfig)
+					d.logger.Info("Drift detected", "instance_id", awsConfig.InstanceID, "changes", diff)
 				}
-
-				// Convert AWS instance to config
-				awsConfig := uc.awsClient.ToInstanceConfig(instance)
-
-				// Find matching Terraform config
-				var tfConfig *entities.InstanceConfig
-				for _, cfg := range tfConfigs {
-					if cfg.InstanceID == instanceID {
-						tfConfig = &cfg
-						break
-					}
-				}
-
-				if tfConfig != nil {
-					report := uc.driftService.DetectDrift(instanceID, awsConfig, *tfConfig, uc.attributes)
-					if report.HasDrift {
-						uc.logger.Info("Drift detected", "instance_id", instanceID, "changes", report.Changes)
-					}
-				} else {
-					uc.logger.Warn("Instance not found in Terraform state", "instance_id", instanceID)
-				}
+				break
 			}
-		}()
+		}
+
+		if !matched {
+			d.logger.Info("Drift detected: Instance not found in Terraform state", "instance_id", awsConfig.InstanceID)
+		}
 	}
 
-	// Distribute instance IDs to workers
-	for _, instanceID := range uc.instanceIDs {
-		instanceChan <- instanceID
-	}
-	close(instanceChan)
-
-	// Wait for all workers to finish
-	wg.Wait()
-	close(errChan)
-
-	// Check for any errors from workers
-	if err, ok := <-errChan; ok {
-		return err
+	// Check for instances in Terraform state but not in AWS
+	for _, tfConfig := range tfConfigs {
+		var matched bool
+		for _, awsConfig := range awsConfigs {
+			if tfConfig.InstanceID == awsConfig.InstanceID {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			d.logger.Info("Drift detected: Instance not found in AWS", "instance_id", tfConfig.InstanceID)
+		}
 	}
 
 	return nil
+}
+
+// compareConfigs compares two InstanceConfig structs and returns a map of differences.
+func compareConfigs(awsConfig, tfConfig entities.InstanceConfig) map[string]interface{} {
+	diff := make(map[string]interface{})
+
+	if awsConfig.InstanceType != tfConfig.InstanceType {
+		diff["instance_type"] = map[string]string{"aws": awsConfig.InstanceType, "tf": tfConfig.InstanceType}
+	}
+
+	if !reflect.DeepEqual(awsConfig.Tags, tfConfig.Tags) {
+		diff["tags"] = map[string]interface{}{"aws": awsConfig.Tags, "tf": tfConfig.Tags}
+	}
+
+	if !reflect.DeepEqual(awsConfig.SecurityGroupIDs, tfConfig.SecurityGroupIDs) {
+		diff["security_group_ids"] = map[string]interface{}{"aws": awsConfig.SecurityGroupIDs, "tf": tfConfig.SecurityGroupIDs}
+	}
+
+	if awsConfig.SubnetID != tfConfig.SubnetID {
+		diff["subnet_id"] = map[string]string{"aws": awsConfig.SubnetID, "tf": tfConfig.SubnetID}
+	}
+
+	if awsConfig.IAMInstanceProfile != tfConfig.IAMInstanceProfile {
+		diff["iam_instance_profile"] = map[string]string{"aws": awsConfig.IAMInstanceProfile, "tf": tfConfig.IAMInstanceProfile}
+	}
+
+	return diff
 }

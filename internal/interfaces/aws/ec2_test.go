@@ -1,107 +1,108 @@
 package aws
 
 import (
-    "context"
-    "strings"
-    "testing"
+	"context"
+	"encoding/json"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"os"
+	"testing"
 
-    awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-
-    "github.com/cstudio7/drift-detector/internal/domain/entities"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/cstudio7/drift-detector/internal/domain/entities"
 )
 
 func TestEC2ClientImpl_GetInstance(t *testing.T) {
-    tests := []struct {
-        name      string
-        instanceID string
-        expectErr bool
-        expectedID string
-    }{
-        {
-            name:       "ValidInstance",
-            instanceID: "i-1234567890abcdef0",
-            expectErr:  false,
-            expectedID: "i-1234567890abcdef0",
-        },
-        {
-            name:       "InstanceNotFound",
-            instanceID: "i-nonexistent",
-            expectErr:  true,
-        },
-    }
+	// Create a mock EC2 instance response
+	mockInstance := types.Instance{
+		InstanceId:   aws.String("i-1234567890abcdef0"),
+		InstanceType: "t2.micro",
+		Tags: []types.Tag{
+			{Key: aws.String("Name"), Value: aws.String("test-instance")},
+		},
+		SecurityGroups: []types.GroupIdentifier{
+			{GroupId: aws.String("sg-12345678")},
+		},
+		SubnetId: aws.String("subnet-12345678"),
+	}
 
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            client, err := NewEC2Client(context.Background())
-            if err != nil {
-                t.Fatalf("Failed to create EC2 client: %v", err)
-            }
+	// Write mock data to a file
+	mockResp := struct {
+		Reservations []struct {
+			Instances []types.Instance
+		}
+	}{
+		Reservations: []struct {
+			Instances []types.Instance
+		}{
+			{Instances: []types.Instance{mockInstance}},
+		},
+	}
+	mockData, _ := json.Marshal(mockResp)
+	filePath, _ := getTestDataPath("sample-ec2.json")
+	os.WriteFile(filePath, mockData, 0644)
+	defer os.Remove(filePath)
 
-            instance, err := client.GetInstance(context.Background(), tt.instanceID)
-            if (err != nil) != tt.expectErr {
-                t.Errorf("Expected error: %v, got error: %v", tt.expectErr, err)
-            }
-            if err != nil {
-                if !strings.Contains(err.Error(), "instance not found") {
-                    t.Errorf("Expected 'instance not found' error, got %v", err)
-                }
-                return
-            }
+	// Create the EC2 client with mock enabled
+	ctx := context.Background()
+	client, err := NewEC2Client(ctx, true) // useMock: true
+	if err != nil {
+		t.Fatalf("Failed to create EC2 client: %v", err)
+	}
 
-            if *instance.InstanceId != tt.expectedID {
-                t.Errorf("Expected instance ID %v, got %v", tt.expectedID, *instance.InstanceId)
-            }
-            if string(instance.InstanceType) != "t2.small" {
-                t.Errorf("Expected instance type t2.small, got %v", instance.InstanceType)
-            }
-        })
-    }
+	// Test successful retrieval
+	instance, err := client.GetInstance(ctx, "i-1234567890abcdef0")
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if *instance.InstanceId != "i-1234567890abcdef0" {
+		t.Errorf("Expected instance ID i-1234567890abcdef0, got %s", *instance.InstanceId)
+	}
+
+	// Test instance not found
+	_, err = client.GetInstance(ctx, "i-nonexistent")
+	if err != entities.ErrInstanceNotFound {
+		t.Errorf("Expected ErrInstanceNotFound, got: %v", err)
+	}
 }
 
 func TestEC2ClientImpl_ToInstanceConfig(t *testing.T) {
-    instance := &awstypes.Instance{
-        InstanceId:   stringPtr("i-1234567890abcdef0"),
-        InstanceType: "t2.small",
-        Tags: []awstypes.Tag{
-            {Key: stringPtr("Name"), Value: stringPtr("prod-instance")},
-        },
-        SecurityGroups: []awstypes.GroupIdentifier{
-            {GroupId: stringPtr("sg-12345678")},
-        },
-        SubnetId: stringPtr("subnet-12345678"),
-        IamInstanceProfile: &awstypes.IamInstanceProfile{
-            Arn: stringPtr("arn:aws:iam::123456789012:instance-profile/test-profile"),
-        },
-    }
+	// Create a mock EC2 instance
+	instance := &types.Instance{
+		InstanceType: "t2.micro",
+		Tags: []types.Tag{
+			{Key: aws.String("Name"), Value: aws.String("test-instance")},
+		},
+		SecurityGroups: []types.GroupIdentifier{
+			{GroupId: aws.String("sg-12345678")},
+		},
+		SubnetId: aws.String("subnet-12345678"),
+		IamInstanceProfile: &types.IamInstanceProfile{
+			Arn: aws.String("arn:aws:iam::123456789012:instance-profile/test-profile"),
+		},
+	}
 
-    client, _ := NewEC2Client(context.Background())
-    config := client.ToInstanceConfig(instance)
+	// Create the EC2 client
+	ctx := context.Background()
+	client, err := NewEC2Client(ctx, true) // useMock: true
+	if err != nil {
+		t.Fatalf("Failed to create EC2 client: %v", err)
+	}
 
-    expected := entities.InstanceConfig{
-        InstanceType:      "t2.small",
-        Tags:              map[string]string{"Name": "prod-instance"},
-        SecurityGroupIDs:  []string{"sg-12345678"},
-        SubnetID:          "subnet-12345678",
-        IAMInstanceProfile: "arn:aws:iam::123456789012:instance-profile/test-profile",
-    }
-
-    if config.InstanceType != expected.InstanceType {
-        t.Errorf("Expected InstanceType %q, got %q", expected.InstanceType, config.InstanceType)
-    }
-    if len(config.Tags) != len(expected.Tags) || config.Tags["Name"] != expected.Tags["Name"] {
-        t.Errorf("Expected Tags %v, got %v", expected.Tags, config.Tags)
-    }
-    if len(config.SecurityGroupIDs) != len(expected.SecurityGroupIDs) || config.SecurityGroupIDs[0] != expected.SecurityGroupIDs[0] {
-        t.Errorf("Expected SecurityGroupIDs %v, got %v", expected.SecurityGroupIDs, config.SecurityGroupIDs)
-    }
-    if config.SubnetID != expected.SubnetID {
-        t.Errorf("Expected SubnetID %q, got %q", expected.SubnetID, config.SubnetID)
-    }
-    if config.IAMInstanceProfile != expected.IAMInstanceProfile {
-        t.Errorf("Expected IAMInstanceProfile %q, got %q", expected.IAMInstanceProfile, config.IAMInstanceProfile)
-    }
-}
-
-func stringPtr(s string) *string {
-    return &s
+	// Convert to InstanceConfig
+	config := client.ToInstanceConfig(instance)
+	if config.InstanceType != "t2.micro" {
+		t.Errorf("Expected InstanceType t2.micro, got %s", config.InstanceType)
+	}
+	if config.Tags["Name"] != "test-instance" {
+		t.Errorf("Expected Tags[Name] test-instance, got %s", config.Tags["Name"])
+	}
+	if len(config.SecurityGroupIDs) != 1 || config.SecurityGroupIDs[0] != "sg-12345678" {
+		t.Errorf("Expected SecurityGroupIDs [sg-12345678], got %v", config.SecurityGroupIDs)
+	}
+	if config.SubnetID != "subnet-12345678" {
+		t.Errorf("Expected SubnetID subnet-12345678, got %s", config.SubnetID)
+	}
+	if config.IAMInstanceProfile != "arn:aws:iam::123456789012:instance-profile/test-profile" {
+		t.Errorf("Expected IAMInstanceProfile arn:aws:iam::123456789012:instance-profile/test-profile, got %s", config.IAMInstanceProfile)
+	}
 }
