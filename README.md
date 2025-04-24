@@ -51,7 +51,7 @@ Before running the Drift Detector, ensure you have the following:
 
 ### Terraform State File
 
-*   A terraform.tfstate file in the root directory for drift detection. An example is provided in the setup instructions.
+*   A terraform.tfstate file in the root directory for drift detection. An example is provided in the setup instructions, but we use testdata/sample-tfstate.json for this test
 
 
 ### Bash Shell (for running the script)
@@ -104,7 +104,10 @@ Setup Instructions
    *   Ensure AWS\_REGION matches the region of your subnets (e.g., us-east-2).
 
    *   **Note**: Do not commit the .env file to version control. Add it to .gitignore.
-
+       AWS_ACCESS_KEY_ID=
+       AWS_SECRET_ACCESS_KEY=
+       AWS_REGION=us-east-1
+       SUBNET_IDS=
 4.  { "Version": "2012-10-17", "Statement": \[ { "Effect": "Allow", "Action": \[ "ec2:DescribeInstances" \], "Resource": "\*" } \]}Test your credentials:aws sts get-caller-identity --region us-east-2
 
 5.  { "version": 4, "terraform\_version": "1.0.0", "serial": 1, "lineage": "fake-lineage", "outputs": {}, "resources": \[ { "mode": "managed", "type": "aws\_instance", "name": "example", "provider": "provider\[\\"registry.terraform.io/hashicorp/aws\\"\]", "instances": \[ { "attributes": { "id": "i-0987654321fedcba0", "instance\_type": "t2.micro", "tags": { "Name": "example-instance" }, "subnet\_id": "subnet-0fd29464681088be4", "security\_groups": \["sg-0a1b2c3d4e5f6g7h8"\], "iam\_instance\_profile": "" } } \] } \]}
@@ -144,7 +147,7 @@ The application can be run in two ways: manually (using individual commands) or 
 
 The run-drift-detector.sh script automates the workflow:
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   ./run-drift-detector.sh   `
+   ./run-drift-detector.sh   `
 
 *   **What the Script Does**:
 
