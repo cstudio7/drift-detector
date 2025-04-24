@@ -2,7 +2,9 @@ package terraform
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
 	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
@@ -66,14 +68,19 @@ func (p *TFStateParserImpl) ParseTFState(filePath string) ([]entities.InstanceCo
 		p.logger.Info("Processing resource", "mode", resource.Mode, "type", resource.Type, "name", resource.Name)
 		if resource.Mode == "managed" && resource.Type == "aws_instance" {
 			for _, instance := range resource.Instances {
-				p.logger.Info("Found aws_instance", "id", instance.Attributes.ID)
+				trimmedID := strings.TrimSpace(instance.Attributes.ID)
+				p.logger.Info("Found aws_instance", "id", trimmedID)
+
+				// Optional: Debug print to ensure no hidden characters
+				fmt.Println("TF Instance ID:", fmt.Sprintf("%q", trimmedID))
+
 				configs = append(configs, entities.InstanceConfig{
-					InstanceID:         instance.Attributes.ID,
-					InstanceType:       instance.Attributes.InstanceType,
+					InstanceID:         trimmedID,
+					InstanceType:       strings.TrimSpace(instance.Attributes.InstanceType),
 					Tags:               instance.Attributes.Tags,
 					SecurityGroupIDs:   instance.Attributes.SecurityGroups,
-					SubnetID:           instance.Attributes.SubnetID,
-					IAMInstanceProfile: instance.Attributes.IAMInstanceProfile,
+					SubnetID:           strings.TrimSpace(instance.Attributes.SubnetID),
+					IAMInstanceProfile: strings.TrimSpace(instance.Attributes.IAMInstanceProfile),
 				})
 			}
 		}

@@ -34,13 +34,16 @@ func (d *DriftDetector) DetectDrift(tfStateFile string) error {
 		return fmt.Errorf("failed to fetch AWS configs: %w", err)
 	}
 
+	d.logger.Info("Fetched AWS configs", "configs", awsConfigs)
+	d.logger.Info("Terraform state file", "file", tfStateFile)
+
 	// Parse Terraform state
 	tfConfigs, err := d.tfParser.ParseTFState(tfStateFile)
 	if err != nil {
-		return fmt.Errorf("failed to parse Terraform state: %w", err)
+		return fmt.Errorf("failed to parse Terraform state from file %s: %w", tfStateFile, err)
 	}
 
-	d.logger.Info("Parsed Terraform configs", "count", len(tfConfigs))
+	d.logger.Info("Parsed Terraform configs", "count", len(tfConfigs), tfConfigs)
 
 	// Compare AWS and Terraform configs
 	for _, awsConfig := range awsConfigs {
@@ -48,7 +51,14 @@ func (d *DriftDetector) DetectDrift(tfStateFile string) error {
 
 		var matched bool
 		for _, tfConfig := range tfConfigs {
-			d.logger.Info("Terraform config", "instance_id", tfConfig.InstanceID)
+			d.logger.Info("AWS config",
+				"instance_id", awsConfig.InstanceID,
+				"instance_type", awsConfig.InstanceType,
+				"tags", awsConfig.Tags,
+				"subnet_id", awsConfig.SubnetID,
+				"security_groups", awsConfig.SecurityGroupIDs,
+				"iam_instance_profile", awsConfig.IAMInstanceProfile,
+			)
 
 			if awsConfig.InstanceID == tfConfig.InstanceID {
 				matched = true
@@ -90,22 +100,37 @@ func compareConfigs(awsConfig, tfConfig entities.InstanceConfig) map[string]inte
 	diff := make(map[string]interface{})
 
 	if awsConfig.InstanceType != tfConfig.InstanceType {
+		fmt.Println("InstanceType mismatch:")
+		fmt.Println("  AWS:", awsConfig.InstanceType)
+		fmt.Println("  TF: ", tfConfig.InstanceType)
 		diff["instance_type"] = map[string]string{"aws": awsConfig.InstanceType, "tf": tfConfig.InstanceType}
 	}
 
 	if !reflect.DeepEqual(awsConfig.Tags, tfConfig.Tags) {
+		fmt.Println("Tags mismatch:")
+		fmt.Println("  AWS:", awsConfig.Tags)
+		fmt.Println("  TF: ", tfConfig.Tags)
 		diff["tags"] = map[string]interface{}{"aws": awsConfig.Tags, "tf": tfConfig.Tags}
 	}
 
 	if !reflect.DeepEqual(awsConfig.SecurityGroupIDs, tfConfig.SecurityGroupIDs) {
+		fmt.Println("SecurityGroupIDs mismatch:")
+		fmt.Println("  AWS:", awsConfig.SecurityGroupIDs)
+		fmt.Println("  TF: ", tfConfig.SecurityGroupIDs)
 		diff["security_group_ids"] = map[string]interface{}{"aws": awsConfig.SecurityGroupIDs, "tf": tfConfig.SecurityGroupIDs}
 	}
 
 	if awsConfig.SubnetID != tfConfig.SubnetID {
+		fmt.Println("SubnetID mismatch:")
+		fmt.Println("  AWS:", awsConfig.SubnetID)
+		fmt.Println("  TF: ", tfConfig.SubnetID)
 		diff["subnet_id"] = map[string]string{"aws": awsConfig.SubnetID, "tf": tfConfig.SubnetID}
 	}
 
 	if awsConfig.IAMInstanceProfile != tfConfig.IAMInstanceProfile {
+		fmt.Println("IAMInstanceProfile mismatch:")
+		fmt.Println("  AWS:", awsConfig.IAMInstanceProfile)
+		fmt.Println("  TF: ", tfConfig.IAMInstanceProfile)
 		diff["iam_instance_profile"] = map[string]string{"aws": awsConfig.IAMInstanceProfile, "tf": tfConfig.IAMInstanceProfile}
 	}
 

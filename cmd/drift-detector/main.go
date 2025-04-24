@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"math/rand"
 	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	customaws "github.com/cstudio7/drift-detector/internal/interfaces/aws"
 	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 	"github.com/cstudio7/drift-detector/internal/usecases"
@@ -52,11 +52,12 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Dynamically fetch AMIs (e.g., Amazon Linux 2 AMIs)
+		// Dynamically fetch AMIs (Amazon Linux 2 AMIs in us-east-2)
 		amiFilter := &ec2.DescribeImagesInput{
 			Owners: []string{"amazon"},
 			Filters: []awstypes.Filter{
 				{Name: aws.String("name"), Values: []string{"amzn2-ami-hvm-*-x86_64-gp2"}},
+				{Name: aws.String("state"), Values: []string{"available"}},
 			},
 		}
 		amiResult, err := ec2Client.Client().DescribeImages(ctx, amiFilter)
@@ -73,6 +74,12 @@ func main() {
 		if len(amiIDs) == 0 {
 			logger.Error("No AMIs found")
 			os.Exit(1)
+		}
+
+		// Define instance types (safe to hardcode)
+		instanceTypes := []string{
+			"t2.micro",
+			"t2.small",
 		}
 
 		// Dynamically fetch subnets
@@ -98,17 +105,11 @@ func main() {
 			logger.Error("Failed to fetch key pairs", "error", err)
 			os.Exit(1)
 		}
-		keyNames := []string{""} // Include empty string as an option (no key pair)
+		keyNames := []string{""}
 		for _, keyPair := range keyResult.KeyPairs {
 			if keyPair.KeyName != nil {
 				keyNames = append(keyNames, *keyPair.KeyName)
 			}
-		}
-
-		// Define instance types
-		instanceTypes := []string{
-			"t2.micro",
-			"t2.small",
 		}
 
 		// Randomly select parameters
@@ -122,7 +123,7 @@ func main() {
 			"ami_id", amiID,
 			"instance_type", instanceType,
 			"subnet_id", subnetID,
-			"key_name", keyName,
+			"key_name", "test-value",
 		)
 
 		// Create the EC2 instance
@@ -181,10 +182,10 @@ func main() {
 		detector := usecases.NewDriftDetector(awsClient, logger)
 
 		// Path to the Terraform state file
-		tfStateFile := "terraform.tfstate"
-		if len(os.Args) > 2 {
-			tfStateFile = os.Args[2]
-		}
+		tfStateFile := "testdata/sample-tfstate.json"
+		//if len(os.Args) > 2 {
+		//	tfStateFile = os.Args[2]
+		//}
 
 		// Detect drift
 		if err := detector.DetectDrift(tfStateFile); err != nil {
