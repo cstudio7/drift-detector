@@ -182,10 +182,12 @@ func main() {
 		detector := usecases.NewDriftDetector(awsClient, logger)
 
 		// Path to the Terraform state file
-		tfStateFile := "testdata/sample-tfstate.json"
-		//if len(os.Args) > 2 {
-		//	tfStateFile = os.Args[2]
-		//}
+		tfStateFile := "terraform.tfstate"
+		if len(os.Args) > 2 {
+			tfStateFile = os.Args[2]
+		}
+
+		fmt.Println("Drift detection completed successfully")
 
 		// Detect drift
 		if err := detector.DetectDrift(tfStateFile); err != nil {
