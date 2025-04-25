@@ -3,7 +3,7 @@ Drift Detector
 
 Drift Detector is a Go application designed to detect configuration drift between existing AWS EC2 instances and a Terraform state file. It allows you to:
 
-*   List existing EC2 instances (list command).
+*   List existing EC2 instances (optional - We included code for creating instance for testing).
 
 *   Detect drift by comparing the live AWS state with a Terraform state file (detect command).
 
@@ -97,7 +97,10 @@ Setup Instructions
 
 2.  go mod tidy
 
-3.  AWS\_ACCESS\_KEY\_ID=your-access-key-idAWS\_SECRET\_ACCESS\_KEY=your-secret-access-keyAWS\_REGION=us-east-2
+3.  AWS_ACCESS_KEY_ID=your-access-key-id
+    AWS_SECRET_ACCESS_KEY=your-secret-access-key   
+    AWS_REGION=us-east-1  
+    SUBNET_IDS=subnet-0000000000,subnet-00000000
 
    *   Replace your-access-key-id and your-secret-access-key with your AWS credentials.
 
@@ -128,7 +131,7 @@ The application can be run in two ways: manually (using individual commands) or 
 
 ### Option 1: Run Manually
 
-1.  go run cmd/drift-detector/main.go list
+1.  go run cmd/drift-detector/main.go list (list can be up or down or detect)
 
    *   This lists the instance IDs of all non-terminated EC2 instances in your AWS account.
 
@@ -143,11 +146,11 @@ The application can be run in two ways: manually (using individual commands) or 
    *   2025/04/24 00:00:00 \[INFO\] Fetching EC2 instance configurations from AWS2025/04/24 00:00:00 \[INFO\] Fetched instance instance\_id=i-0abcdef12345678902025/04/24 00:00:00 \[INFO\] Fetched instance instance\_id=i-1bcdef234567890a2025/04/24 00:00:00 \[INFO\] Completed fetching EC2 instance configurations count=22025/04/24 00:00:00 \[INFO\] Drift detected: Instance not found in Terraform state instance\_id=i-0abcdef12345678902025/04/24 00:00:00 \[INFO\] Drift detected: Instance not found in Terraform state instance\_id=i-1bcdef234567890aDrift detection completed successfully
 
 
-### Option 2: Run Automatically with the Script
+### Option 2: Run Automatically with the Script (Recommended)
 
-The run-drift-detector.sh script automates the workflow:
+The run-drift-detector.sh script automates the workflow:   
 
-   ./run-drift-detector.sh   `
+ `  ./run-drift-detector.sh `  
 
 *   **What the Script Does**:
 
@@ -163,78 +166,13 @@ Testing the Application
 
 Testing ensures that the Drift Detector application works as expected. Below are steps for both functional testing (using the application) and unit testing.
 
-### Functional Testing
-
-Functional testing verifies the workflow of the application: listing existing EC2 instances and detecting drift.
-
-#### Test 1: Run the Entire Workflow with the Script
-
-1.  **Ensure Instances Exist**:
-
-   *   aws ec2 describe-instances --region us-east-2 --query 'Reservations\[\*\].Instances\[\*\].\[InstanceId,State.Name\]' --output table
-
-   *   aws ec2 run-instances --image-id ami-0f8ca7285bddd64b6 --instance-type t2.micro --subnet-id subnet-0fd29464681088be4 --region us-east-2
-
-2.  ./run-drift-detector.sh
-
-3.  **Verify the Output**:
-
-   *   Ensure the list command shows the instance IDs of existing EC2 instances.
-
-   *   Check the AWS Management Console to confirm the listed instances match what’s in your account.
-
-   *   Ensure the detect command runs and reports drift (if the instance IDs in terraform.tfstate don’t match the existing instances).
-
-4.  **Expected Result**:
-
-   *   The script completes successfully with output similar to the example in the "Run Automatically with the Script" section.
-
-   *   Drift is detected if the instances in AWS don’t match the terraform.tfstate file.
-
-
-#### Test 2: Run Commands Manually
-
-1.  go run cmd/drift-detector/main.go list
-
-   *   Verify the output matches the instances in your AWS account.
-
-2.  go run cmd/drift-detector/main.go detect terraform.tfstate
-
-   *   Verify that drift is detected if the instance IDs in terraform.tfstate don’t match the existing instances.
-
-3.  **Expected Result**:
-
-   *   Each command executes successfully with the expected output.
-
-   *   The list command shows all non-terminated instances.
-
-   *   The detect command reports drift if applicable.
-
-
-#### Test 3: Simulate No Drift
-
-1.  **Update** terraform.tfstate:
-
-   *   After running the list command, note one of the instance IDs (e.g., i-0abcdef1234567890).
-
-   *   { "version": 4, "terraform\_version": "1.0.0", "serial": 1, "lineage": "fake-lineage", "outputs": {}, "resources": \[ { "mode": "managed", "type": "aws\_instance", "name": "example", "provider": "provider\[\\"registry.terraform.io/hashicorp/aws\\"\]", "instances": \[ { "attributes": { "id": "i-0abcdef1234567890", "instance\_type": "t2.micro", "tags": { "Name": "example-instance" }, "subnet\_id": "subnet-0fd29464681088be4", "security\_groups": \["sg-0a1b2c3d4e5f6g7h8"\], "iam\_instance\_profile": "" } } \] } \]}
-
-2.  go run cmd/drift-detector/main.go detect terraform.tfstate
-
-3.  **Verify the Output**:
-
-   *   The detect command should report no drift for the matched instance (but may still report drift for other instances not in the state file).
-
-4.  **Expected Result**:
-
-   *   The detect command reports no drift for the instance that matches terraform.tfstate.
-
+To run all test use: `go test -v ./...`
 
 ### Unit Testing
 
 The codebase includes unit tests for several packages. To run the tests and generate a coverage report:
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   go test -coverprofile=cover.out ./internal/...  go tool cover -html=cover.out -o cover.html   `
+` go test -coverprofile=cover.out ./internal/...`
 
 The current test coverage is:
 
@@ -247,7 +185,6 @@ The current test coverage is:
 *   internal/interfaces/terraform: 90.0% of statements
 
 *   internal/usecases: 90.0% of statements
-
 
 To add tests for the internal/interfaces/aws package, you can create a mock EC2Client and test the LiveAWSClient logic. Here’s an example:
 
