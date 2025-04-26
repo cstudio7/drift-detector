@@ -3,6 +3,7 @@ package usecases
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
 	"github.com/cstudio7/drift-detector/internal/interfaces/aws"
@@ -26,7 +27,7 @@ func NewDriftDetector(awsClient aws.AWSClient, logger logger.Logger) *DriftDetec
 	}
 }
 
-// DetectDrift detects drift between AWS and Terraform state.
+// DetectDrift detects drift between AWS and Terraform state concurrently and logs structured output.
 func (d *DriftDetector) DetectDrift(tfStateFile string) error {
 	// Fetch AWS instance configurations
 	awsConfigs, err := d.awsClient.FetchInstanceConfigs()
@@ -44,14 +45,51 @@ func (d *DriftDetector) DetectDrift(tfStateFile string) error {
 
 	d.logger.Info("Parsed Terraform configs", "instance_types", tfConfigs.InstanceTypes)
 
-	// Compare AWS and Terraform configs
+	// Channel to collect drift results
+	type driftResult struct {
+		instanceID string
+		diff       map[string]interface{}
+	}
+	results := make(chan driftResult, len(awsConfigs))
+
+	// WaitGroup to ensure all goroutines complete
+	var wg sync.WaitGroup
+
+	// Process each AWS config concurrently
 	for _, awsConfig := range awsConfigs {
-		d.logger.Info("AWS config", "instance_id", awsConfig.InstanceID, "instance_type", awsConfig.InstanceType)
-		// Compare the configurations
-		diff := compareConfigs(awsConfig, tfConfigs)
-		if len(diff) > 0 {
-			d.logger.Info("Drift detected", "instance_id", awsConfig.InstanceID, "changes", diff)
+		wg.Add(1)
+		go func(config entities.InstanceConfig) {
+			defer wg.Done()
+
+			// Compare configurations
+			diff := compareConfigs(config, tfConfigs)
+			if len(diff) > 0 {
+				results <- driftResult{
+					instanceID: config.InstanceID,
+					diff:       diff,
+				}
+			}
+		}(awsConfig)
+	}
+
+	// Close results channel after all goroutines complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect and log results with structured output
+	for result := range results {
+		// Build structured drift message
+		var driftDetails []string
+		for field, details := range result.diff {
+			d := details.(map[string]interface{})
+			awsVal := fmt.Sprintf("%v", d["aws"])
+			tfVal := fmt.Sprintf("%v", d["tf"])
+			driftDetails = append(driftDetails, fmt.Sprintf("  - %s: AWS=%s, Terraform=%s", field, awsVal, tfVal))
 		}
+		// Log structured drift message
+		d.logger.Info(fmt.Sprintf("Drift detected for instance %s:\n%s", result.instanceID, strings.Join(driftDetails, "\n")))
 	}
 
 	return nil

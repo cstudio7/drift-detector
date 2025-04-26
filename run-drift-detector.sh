@@ -28,37 +28,33 @@ cleanup() {
 }
 trap cleanup EXIT
 
-## Step 1: Create an EC2 instance (up)
-#echo "Creating EC2 instance..."
-#if ! go run cmd/drift-detector/main.go up 2>&1 | tee /dev/tty; then
-#    echo "Error: 'up' command failed."
-#    exit 1
-#fi
+# Step 1: Create an EC2 instance (up)
+echo "Creating EC2 instance..."
+if ! go run cmd/drift-detector/main.go up 2>&1 | tee /dev/tty; then
+    echo "Error: 'up' command failed."
+    exit 1
+fi
 
-## Capture the output after running the command
-#UP_OUTPUT=$(go run cmd/drift-detector/main.go up 2>&1)
-#
-## Extract the instance ID from the output
-#INSTANCE_ID=$(echo "$UP_OUTPUT" | grep "To terminate the instance" | grep -o "i-[a-z0-9]\+")
-#if [ -z "$INSTANCE_ID" ]; then
-#    echo "Error: Failed to extract instance ID from the 'up' command output."
-#    echo "Output: $UP_OUTPUT"
-#    exit 1
-#fi
-#echo "Extracted instance ID: $INSTANCE_ID"
+# Capture the output after running the command
+UP_OUTPUT=$(go run cmd/drift-detector/main.go up 2>&1)
 
-## Wait for the instance to be fully running
-#echo "Waiting for instance to be fully running..."
-#sleep 30
+# Extract the instance ID from the output
+INSTANCE_ID=$(echo "$UP_OUTPUT" | grep "To terminate the instance" | grep -o "i-[a-z0-9]\+")
+if [ -z "$INSTANCE_ID" ]; then
+    echo "Error: Failed to extract instance ID from the 'up' command output."
+    echo "Output: $UP_OUTPUT"
+    exit 1
+fi
+echo "Extracted instance ID: $INSTANCE_ID"
+
+# Wait for the instance to be fully running
+echo "Waiting for instance to be fully running..."
+sleep 30
 
 # Step 2: Detect drift (detect) with retries
 echo "Detecting drift..."
-
-# Default file is terraform.tfstate if none provided
-HCL_FILE="${1:-terraform.tfstate}"
-
 for i in {1..3}; do
-    if go run cmd/drift-detector/main.go detect "$HCL_FILE"; then
+    if go run cmd/drift-detector/main.go detect terraform.tfstate; then
         break
     else
         echo "Drift detection failed, retrying ($i/3)..."
@@ -70,9 +66,8 @@ for i in {1..3}; do
     fi
 done
 
+# Step 3: Terminate the EC2 instance (down)
+echo "Terminating EC2 instance ($INSTANCE_ID)..."
+go run cmd/drift-detector/main.go down "$INSTANCE_ID"
 
-## Step 3: Terminate the EC2 instance (down)
-#echo "Terminating EC2 instance ($INSTANCE_ID)..."
-#go run cmd/drift-detector/main.go down "$INSTANCE_ID"
-#
-#echo "Application run completed successfully."
+echo "Application run completed successfully."
