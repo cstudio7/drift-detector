@@ -3,167 +3,237 @@ package terraform
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 
-	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
+	_ "github.com/cstudio7/drift-detector/internal/interfaces/logger" // Blank identifier to suppress unused import warning
+	"github.com/stretchr/testify/assert"
 )
 
-// getTestDataPath resolves the path to the testdata directory dynamically.
-func getTestDataPath(filename string) (string, error) {
-	_, callerFile, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", os.ErrInvalid
-	}
-	// Navigate to the testdata directory at the project root
-	// internal/interfaces/terraform/terraform_test.go -> testdata/
-	baseDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(callerFile)))) // Up four levels to project root
-	testDataPath := filepath.Join(baseDir, "testdata", filename)
-	return testDataPath, nil
+// mockLogger is a simple implementation of logger.Logger for testing.
+type mockLogger struct {
+	logs []string
 }
 
-func TestTFStateParserImpl_ParseTFState(t *testing.T) {
-	// Sample Terraform state data
-	validState := map[string]interface{}{
-		"resources": []interface{}{
-			map[string]interface{}{
-				"mode":     "managed",
-				"type":     "aws_instance",
-				"name":     "example",
-				"provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
-				"instances": []interface{}{
-					map[string]interface{}{
-						"attributes": map[string]interface{}{
-							"id":                   "i-1234567890abcdef0",
-							"instance_type":        "t2.micro",
-							"tags":                 map[string]interface{}{"Name": "test-instance"},
-							"security_groups":      []interface{}{"sg-12345678"},
-							"subnet_id":            "subnet-12345678",
-							"iam_instance_profile": "test-profile",
-						},
-					},
+func (m *mockLogger) Info(msg string, keysAndValues ...interface{}) {
+	m.logs = append(m.logs, msg)
+}
+
+func (m *mockLogger) Warn(msg string, keysAndValues ...interface{}) {
+	m.logs = append(m.logs, msg)
+}
+
+func (m *mockLogger) Error(msg string, keysAndValues ...interface{}) {
+	m.logs = append(m.logs, msg)
+}
+
+func TestNewTFStateParser(t *testing.T) {
+	mockLog := &mockLogger{}
+	parser := NewTFStateParser(mockLog)
+
+	assert.NotNil(t, parser)
+	assert.Equal(t, mockLog, parser.logger)
+}
+
+func TestParseTFState(t *testing.T) {
+	// Create a mock logger
+	mockLog := &mockLogger{}
+
+	// Initialize the parser
+	parser := NewTFStateParser(mockLog)
+
+	// Test case 1: Successful parsing of a valid Terraform state file
+	t.Run("ValidTFStateFile", func(t *testing.T) {
+		// Reset mock logger
+		mockLog.logs = []string{}
+
+		// Create a valid Terraform state
+		validState := TFState{
+			Version:          4,
+			TerraformVersion: "1.5.0",
+			Serial:           1,
+			Lineage:          "abc123",
+			Resources: struct {
+				AWSInstance InstanceConfigSet `json:"aws_instance"`
+			}{
+				AWSInstance: InstanceConfigSet{
+					InstanceTypes:       []string{"t2.micro", "t3.micro"},
+					AMIs:                []string{"ami-12345678", "ami-87654321"},
+					AvailabilityZones:   []string{"us-east-1a", "us-east-1b"},
+					KeyNames:            []string{"key1", "key2"},
+					SecurityGroupIDs:    []string{"sg-123", "sg-456"},
+					SubnetIDs:           []string{"subnet-123", "subnet-456"},
+					IAMInstanceProfiles: []string{"profile1", "profile2"},
+					TagNames:            []string{"Name", "Owner"},
+					TagEnvironments:     []string{"prod", "dev"},
+					EBSVolumeSizes:      []int{10, 20},
+					EBSVolumeTypes:      []string{"gp2", "gp3"},
 				},
 			},
-		},
-	}
+		}
 
-	emptyState := map[string]interface{}{
-		"resources": []interface{}{},
-	}
+		// Marshal to JSON
+		jsonData, err := json.Marshal(validState)
+		assert.NoError(t, err)
 
-	// Create temporary files for testing
-	validStateFile, err := getTestDataPath("valid-tfstate.json")
-	if err != nil {
-		t.Fatalf("Failed to resolve valid-tfstate.json path: %v", err)
-	}
-	validData, _ := json.Marshal(validState)
-	if err := os.WriteFile(validStateFile, validData, 0644); err != nil {
-		t.Fatalf("Failed to write valid-tfstate.json: %v", err)
-	}
-	defer os.Remove(validStateFile)
+		// Create a temporary file
+		tempFile, err := os.CreateTemp("", "valid_tfstate_*.json")
+		assert.NoError(t, err)
+		defer os.Remove(tempFile.Name())
 
-	emptyStateFile, err := getTestDataPath("empty-tfstate.json")
-	if err != nil {
-		t.Fatalf("Failed to resolve empty-tfstate.json path: %v", err)
-	}
-	emptyData, _ := json.Marshal(emptyState)
-	if err := os.WriteFile(emptyStateFile, emptyData, 0644); err != nil {
-		t.Fatalf("Failed to write empty-tfstate.json: %v", err)
-	}
-	defer os.Remove(emptyStateFile)
+		// Write JSON data to the file
+		_, err = tempFile.Write(jsonData)
+		assert.NoError(t, err)
+		tempFile.Close()
 
-	invalidJSONFile, err := getTestDataPath("invalid-tfstate.json")
-	if err != nil {
-		t.Fatalf("Failed to resolve invalid-tfstate.json path: %v", err)
-	}
-	if err := os.WriteFile(invalidJSONFile, []byte("{invalid json"), 0644); err != nil {
-		t.Fatalf("Failed to write invalid-tfstate.json: %v", err)
-	}
-	defer os.Remove(invalidJSONFile)
+		// Parse the state file
+		configSet, err := parser.ParseTFState(tempFile.Name())
+		assert.NoError(t, err)
 
-	nonAWSInstanceState := map[string]interface{}{
-		"resources": []interface{}{
-			map[string]interface{}{
-				"mode":     "managed",
-				"type":     "aws_s3_bucket",
-				"name":     "example",
-				"provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
-				"instances": []interface{}{
-					map[string]interface{}{
-						"attributes": map[string]interface{}{
-							"id": "my-bucket",
-						},
-					},
+		// Verify the parsed config set
+		assert.Equal(t, validState.Resources.AWSInstance, configSet)
+
+		// Verify logging
+		expectedLogs := []string{
+			"Starting to parse file",
+			"Parsed Terraform state",
+			"Parsed instance types",
+			"Parsed AMIs",
+			"Parsed availability zones",
+			"Parsed key names",
+			"Parsed security groups",
+			"Parsed subnet IDs",
+			"Parsed IAM instance profiles",
+			"Parsed tag names",
+			"Parsed tag environments",
+			"Parsed EBS volume sizes",
+			"Parsed EBS volume types",
+			"Returning parsed config set",
+		}
+		for _, logMsg := range expectedLogs {
+			assert.Contains(t, mockLog.logs, logMsg, "Expected log message: %s", logMsg)
+		}
+	})
+
+	// Test case 2: File does not exist
+	t.Run("FileNotFound", func(t *testing.T) {
+		// Reset mock logger
+		mockLog.logs = []string{}
+
+		// Try to parse a non-existent file
+		_, err := parser.ParseTFState("non_existent_file.json")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read file")
+
+		// Verify error logging
+		assert.Contains(t, mockLog.logs, "Failed to read JSON state file")
+	})
+
+	// Test case 3: Invalid JSON content
+	t.Run("InvalidJSON", func(t *testing.T) {
+		// Reset mock logger
+		mockLog.logs = []string{}
+
+		// Create a temporary file with invalid JSON
+		tempFile, err := os.CreateTemp("", "invalid_tfstate_*.json")
+		assert.NoError(t, err)
+		defer os.Remove(tempFile.Name())
+
+		// Write invalid JSON to the file
+		_, err = tempFile.WriteString(`{invalid json}`)
+		assert.NoError(t, err)
+		tempFile.Close()
+
+		// Parse the state file
+		_, err = parser.ParseTFState(tempFile.Name())
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse JSON")
+
+		// Verify logging
+		assert.Contains(t, mockLog.logs, "Starting to parse file")
+		assert.Contains(t, mockLog.logs, "Failed to parse JSON state file")
+	})
+
+	// Test case 4: Empty configurations
+	t.Run("EmptyConfig", func(t *testing.T) {
+		// Reset mock logger
+		mockLog.logs = []string{}
+
+		// Create a Terraform state with empty configurations
+		emptyState := TFState{
+			Version:          4,
+			TerraformVersion: "1.5.0",
+			Serial:           1,
+			Lineage:          "abc123",
+			Resources: struct {
+				AWSInstance InstanceConfigSet `json:"aws_instance"`
+			}{
+				AWSInstance: InstanceConfigSet{
+					InstanceTypes:       []string{},
+					AMIs:                []string{},
+					AvailabilityZones:   []string{},
+					KeyNames:            []string{},
+					SecurityGroupIDs:    []string{},
+					SubnetIDs:           []string{},
+					IAMInstanceProfiles: []string{},
+					TagNames:            []string{},
+					TagEnvironments:     []string{},
+					EBSVolumeSizes:      []int{},
+					EBSVolumeTypes:      []string{},
 				},
 			},
-		},
-	}
-	nonAWSInstanceFile, err := getTestDataPath("non-aws-instance-tfstate.json")
-	if err != nil {
-		t.Fatalf("Failed to resolve non-aws-instance-tfstate.json path: %v", err)
-	}
-	nonAWSData, _ := json.Marshal(nonAWSInstanceState)
-	if err := os.WriteFile(nonAWSInstanceFile, nonAWSData, 0644); err != nil {
-		t.Fatalf("Failed to write non-aws-instance-tfstate.json: %v", err)
-	}
-	defer os.Remove(nonAWSInstanceFile)
+		}
 
-	tests := []struct {
-		name        string
-		filePath    string
-		expectErr   bool
-		expectedLen int
-	}{
-		{
-			name:        "ValidState",
-			filePath:    validStateFile,
-			expectErr:   false,
-			expectedLen: 1,
-		},
-		{
-			name:        "EmptyState",
-			filePath:    emptyStateFile,
-			expectErr:   false,
-			expectedLen: 0,
-		},
-		{
-			name:        "InvalidJSON",
-			filePath:    invalidJSONFile,
-			expectErr:   true,
-			expectedLen: 0,
-		},
-		{
-			name:        "NonAWSInstanceResource",
-			filePath:    nonAWSInstanceFile,
-			expectErr:   false,
-			expectedLen: 0,
-		},
-	}
+		// Marshal to JSON
+		jsonData, err := json.Marshal(emptyState)
+		assert.NoError(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create a logger for the test
-			logger := logger.NewTestLogger()
-			parser := NewTFStateParser(logger)
-			configs, err := parser.ParseTFState(tt.filePath)
-			if (err != nil) != tt.expectErr {
-				t.Errorf("Expected error: %v, got: %v", tt.expectErr, err)
-			}
-			if len(configs) != tt.expectedLen {
-				t.Errorf("Expected %d configs, got %d", tt.expectedLen, len(configs))
-			}
-			if tt.name == "ValidState" && len(configs) > 0 {
-				if configs[0].InstanceID != "i-1234567890abcdef0" {
-					t.Errorf("Expected instance ID i-1234567890abcdef0, got %s", configs[0].InstanceID)
-				}
-				if configs[0].InstanceType != "t2.micro" {
-					t.Errorf("Expected instance type t2.micro, got %s", configs[0].InstanceType)
-				}
-				if configs[0].Tags["Name"] != "test-instance" {
-					t.Errorf("Expected tag Name=test-instance, got %s", configs[0].Tags["Name"])
-				}
-			}
-		})
-	}
+		// Create a temporary file
+		tempFile, err := os.CreateTemp("", "empty_tfstate_*.json")
+		assert.NoError(t, err)
+		defer os.Remove(tempFile.Name())
+
+		// Write JSON data to the file
+		_, err = tempFile.Write(jsonData)
+		assert.NoError(t, err)
+		tempFile.Close()
+
+		// Parse the state file
+		configSet, err := parser.ParseTFState(tempFile.Name())
+		assert.NoError(t, err)
+
+		// Verify the parsed config set
+		assert.Equal(t, emptyState.Resources.AWSInstance, configSet)
+		assert.Empty(t, configSet.InstanceTypes)
+		assert.Empty(t, configSet.AMIs)
+		assert.Empty(t, configSet.AvailabilityZones)
+		assert.Empty(t, configSet.KeyNames)
+		assert.Empty(t, configSet.SecurityGroupIDs)
+		assert.Empty(t, configSet.SubnetIDs)
+		assert.Empty(t, configSet.IAMInstanceProfiles)
+		assert.Empty(t, configSet.TagNames)
+		assert.Empty(t, configSet.TagEnvironments)
+		assert.Empty(t, configSet.EBSVolumeSizes)
+		assert.Empty(t, configSet.EBSVolumeTypes)
+
+		// Verify logging
+		expectedLogs := []string{
+			"Starting to parse file",
+			"Parsed Terraform state",
+			"Parsed instance types",
+			"Parsed AMIs",
+			"Parsed availability zones",
+			"Parsed key names",
+			"Parsed security groups",
+			"Parsed subnet IDs",
+			"Parsed IAM instance profiles",
+			"Parsed tag names",
+			"Parsed tag environments",
+			"Parsed EBS volume sizes",
+			"Parsed EBS volume types",
+			"Returning parsed config set",
+		}
+		for _, logMsg := range expectedLogs {
+			assert.Contains(t, mockLog.logs, logMsg, "Expected log message: %s", logMsg)
+		}
+	})
 }

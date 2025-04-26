@@ -53,8 +53,12 @@ trap cleanup EXIT
 
 # Step 2: Detect drift (detect) with retries
 echo "Detecting drift..."
+
+# Default file is terraform.tfstate if none provided
+HCL_FILE="${1:-terraform.tfstate}"
+
 for i in {1..3}; do
-    if go run cmd/drift-detector/main.go detect terraform.tfstate; then
+    if go run cmd/drift-detector/main.go detect "$HCL_FILE"; then
         break
     else
         echo "Drift detection failed, retrying ($i/3)..."
@@ -65,6 +69,7 @@ for i in {1..3}; do
         fi
     fi
 done
+
 
 ## Step 3: Terminate the EC2 instance (down)
 #echo "Terminating EC2 instance ($INSTANCE_ID)..."

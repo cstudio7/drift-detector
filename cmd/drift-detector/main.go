@@ -181,21 +181,23 @@ func main() {
 		// Create the drift detector
 		detector := usecases.NewDriftDetector(awsClient, logger)
 
-		// Path to the Terraform state file
-		tfStateFile := "terraform.tfstate"
-		if len(os.Args) > 2 {
-			tfStateFile = os.Args[2]
+		// Check if the HCL (state) file path is provided
+		if len(os.Args) < 3 {
+			fmt.Println("Please provide the path to the Terraform state (.tfstate) or HCL file.")
+			fmt.Println("Example: go run main.go detect path/to/your/file.tfstate")
+			os.Exit(1)
 		}
 
-		fmt.Println("Drift detection completed successfully")
+		tfStateFile := os.Args[2]
 
-		// Detect drift
-		if err := detector.DetectDrift(tfStateFile); err != nil {
+		// Perform drift detection
+		err = detector.DetectDrift(tfStateFile)
+		if err != nil {
 			logger.Error("Drift detection failed", "error", err)
 			os.Exit(1)
 		}
 
-		fmt.Println("Drift detection completed successfully")
+		logger.Info("Drift detection completed successfully")
 
 	default:
 		fmt.Println("Invalid action. Use 'up' to create an instance, 'down' to terminate one, or 'detect' to detect drift.")

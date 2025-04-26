@@ -2,7 +2,7 @@ package usecases
 
 import (
 	"fmt"
-	"reflect"
+	"strings"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
 	"github.com/cstudio7/drift-detector/internal/interfaces/aws"
@@ -34,8 +34,7 @@ func (d *DriftDetector) DetectDrift(tfStateFile string) error {
 		return fmt.Errorf("failed to fetch AWS configs: %w", err)
 	}
 
-	d.logger.Info("Fetched AWS configs", "configs", awsConfigs)
-	d.logger.Info("Terraform state file", "file", tfStateFile)
+	d.logger.Info("Fetched AWS configs", "count", len(awsConfigs))
 
 	// Parse Terraform state
 	tfConfigs, err := d.tfParser.ParseTFState(tfStateFile)
@@ -43,74 +42,122 @@ func (d *DriftDetector) DetectDrift(tfStateFile string) error {
 		return fmt.Errorf("failed to parse Terraform state from file %s: %w", tfStateFile, err)
 	}
 
-	d.logger.Info("Parsed Terraform configs", "count", len(tfConfigs))
+	d.logger.Info("Parsed Terraform configs", "instance_types", tfConfigs.InstanceTypes)
 
 	// Compare AWS and Terraform configs
 	for _, awsConfig := range awsConfigs {
 		d.logger.Info("AWS config", "instance_id", awsConfig.InstanceID, "instance_type", awsConfig.InstanceType)
-
-		var matched bool
-		for _, tfConfig := range tfConfigs {
-			d.logger.Info("Terraform config", "instance_id", tfConfig.InstanceID)
-
-			if awsConfig.InstanceID == tfConfig.InstanceID {
-				matched = true
-				d.logger.Info("Comparing", "aws_instance_id", awsConfig.InstanceID, "tf_instance_id", tfConfig.InstanceID)
-
-				// Compare the configurations
-				if !reflect.DeepEqual(awsConfig, tfConfig) {
-					diff := compareConfigs(awsConfig, tfConfig)
-					d.logger.Info("Drift detected", "instance_id", awsConfig.InstanceID, "changes", diff)
-				}
-				break
-			}
-		}
-
-		if !matched {
-			d.logger.Info("Drift detected: Instance not found in Terraform state", "instance_id", awsConfig.InstanceID)
-		}
-	}
-
-	// Check for instances in Terraform state but not in AWS
-	for _, tfConfig := range tfConfigs {
-		var matched bool
-		for _, awsConfig := range awsConfigs {
-			if tfConfig.InstanceID == awsConfig.InstanceID {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			d.logger.Info("Drift detected: Instance not found in AWS", "instance_id", tfConfig.InstanceID)
+		// Compare the configurations
+		diff := compareConfigs(awsConfig, tfConfigs)
+		if len(diff) > 0 {
+			d.logger.Info("Drift detected", "instance_id", awsConfig.InstanceID, "changes", diff)
 		}
 	}
 
 	return nil
 }
 
-// compareConfigs compares two InstanceConfig structs and returns a map of differences.
-func compareConfigs(awsConfig, tfConfig entities.InstanceConfig) map[string]interface{} {
+// compareConfigs compares an AWS InstanceConfig against a Terraform InstanceConfigSet and returns a map of differences.
+func compareConfigs(awsConfig entities.InstanceConfig, tfConfigs terraform.InstanceConfigSet) map[string]interface{} {
 	diff := make(map[string]interface{})
 
-	if awsConfig.InstanceType != tfConfig.InstanceType {
-		diff["instance_type"] = map[string]string{"aws": awsConfig.InstanceType, "tf": tfConfig.InstanceType}
+	if !contains(tfConfigs.InstanceTypes, awsConfig.InstanceType) {
+		diff["instance_type"] = map[string]interface{}{
+			"aws": awsConfig.InstanceType,
+			"tf":  strings.Join(tfConfigs.InstanceTypes, ", "),
+		}
 	}
 
-	if !reflect.DeepEqual(awsConfig.Tags, tfConfig.Tags) {
-		diff["tags"] = map[string]interface{}{"aws": awsConfig.Tags, "tf": tfConfig.Tags}
+	if !allIn(awsConfig.SecurityGroupIDs, tfConfigs.SecurityGroupIDs) {
+		diff["security_group_ids"] = map[string]interface{}{
+			"aws": awsConfig.SecurityGroupIDs,
+			"tf":  strings.Join(tfConfigs.SecurityGroupIDs, ", "),
+		}
 	}
 
-	if !reflect.DeepEqual(awsConfig.SecurityGroupIDs, tfConfig.SecurityGroupIDs) {
-		diff["security_group_ids"] = map[string]interface{}{"aws": awsConfig.SecurityGroupIDs, "tf": tfConfig.SecurityGroupIDs}
+	if !contains(tfConfigs.SubnetIDs, awsConfig.SubnetID) {
+		diff["subnet_id"] = map[string]interface{}{
+			"aws": awsConfig.SubnetID,
+			"tf":  strings.Join(tfConfigs.SubnetIDs, ", "),
+		}
 	}
 
-	if awsConfig.SubnetID != tfConfig.SubnetID {
-		diff["subnet_id"] = map[string]string{"aws": awsConfig.SubnetID, "tf": tfConfig.SubnetID}
+	if !contains(tfConfigs.IAMInstanceProfiles, awsConfig.IAMInstanceProfile) {
+		diff["iam_instance_profile"] = map[string]interface{}{
+			"aws": awsConfig.IAMInstanceProfile,
+			"tf":  strings.Join(tfConfigs.IAMInstanceProfiles, ", "),
+		}
 	}
 
-	if awsConfig.IAMInstanceProfile != tfConfig.IAMInstanceProfile {
-		diff["iam_instance_profile"] = map[string]string{"aws": awsConfig.IAMInstanceProfile, "tf": tfConfig.IAMInstanceProfile}
+	if awsConfig.Tags != nil {
+		if name, ok := awsConfig.Tags["Name"]; ok && !contains(tfConfigs.TagNames, name) {
+			diff["tag.Name"] = map[string]interface{}{
+				"aws": name,
+				"tf":  strings.Join(tfConfigs.TagNames, ", "),
+			}
+		}
+		if env, ok := awsConfig.Tags["Environment"]; ok && !contains(tfConfigs.TagEnvironments, env) {
+			diff["tag.Environment"] = map[string]interface{}{
+				"aws": env,
+				"tf":  strings.Join(tfConfigs.TagEnvironments, ", "),
+			}
+		}
+	}
+
+	// Add EBS validation if awsConfig.EBSBlockDevices exists
+	for _, ebs := range awsConfig.EBSBlockDevices {
+		if !containsInt(tfConfigs.EBSVolumeSizes, ebs.VolumeSize) {
+			diff["ebs_volume_size"] = map[string]interface{}{
+				"aws": ebs.VolumeSize,
+				"tf":  joinInt(tfConfigs.EBSVolumeSizes),
+			}
+		}
+		if !contains(tfConfigs.EBSVolumeTypes, ebs.VolumeType) {
+			diff["ebs_volume_type"] = map[string]interface{}{
+				"aws": ebs.VolumeType,
+				"tf":  strings.Join(tfConfigs.EBSVolumeTypes, ", "),
+			}
+		}
 	}
 
 	return diff
+}
+
+// contains checks if an item is in a string slice.
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// containsInt checks if an item is in an int slice.
+func containsInt(slice []int, item int) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// allIn checks if all items in actual are in allowed.
+func allIn(actual, allowed []string) bool {
+	for _, a := range actual {
+		if !contains(allowed, a) {
+			return false
+		}
+	}
+	return true
+}
+
+// joinInt converts an int slice to a string.
+func joinInt(slice []int) string {
+	strs := make([]string, len(slice))
+	for i, v := range slice {
+		strs[i] = fmt.Sprintf("%d", v)
+	}
+	return strings.Join(strs, ", ")
 }

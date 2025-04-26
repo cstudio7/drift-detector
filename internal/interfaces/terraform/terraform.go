@@ -4,15 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
-	"github.com/cstudio7/drift-detector/internal/domain/entities"
 	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 )
 
 // TFStateParser defines the interface for parsing Terraform state files.
 type TFStateParser interface {
-	ParseTFState(filePath string) ([]entities.InstanceConfig, error)
+	ParseTFState(filePath string) (InstanceConfigSet, error)
 }
 
 // TFStateParserImpl is the implementation of TFStateParser.
@@ -27,65 +25,68 @@ func NewTFStateParser(logger logger.Logger) *TFStateParserImpl {
 	}
 }
 
-// ParseTFState parses a Terraform state file and returns a list of instance configurations.
-func (p *TFStateParserImpl) ParseTFState(filePath string) ([]entities.InstanceConfig, error) {
-	data, err := os.ReadFile(filePath)
+// InstanceConfigSet holds aggregated attributes for drift detection.
+type InstanceConfigSet struct {
+	InstanceTypes       []string `json:"instance_types"`
+	AMIs                []string `json:"amis"`
+	AvailabilityZones   []string `json:"availability_zones"`
+	KeyNames            []string `json:"key_names"`
+	SecurityGroupIDs    []string `json:"security_groups"`
+	SubnetIDs           []string `json:"subnet_ids"`
+	IAMInstanceProfiles []string `json:"iam_instance_profiles"`
+	TagNames            []string `json:"tag_names"`
+	TagEnvironments     []string `json:"tag_environments"`
+	EBSVolumeSizes      []int    `json:"ebs_volume_sizes"`
+	EBSVolumeTypes      []string `json:"ebs_volume_types"`
+}
+
+// TFState represents the structure of the simplified Terraform state file.
+type TFState struct {
+	Version          int    `json:"version"`
+	TerraformVersion string `json:"terraform_version"`
+	Serial           int    `json:"serial"`
+	Lineage          string `json:"lineage"`
+	Resources        struct {
+		AWSInstance InstanceConfigSet `json:"aws_instance"`
+	} `json:"resources"`
+}
+
+func (p *TFStateParserImpl) ParseTFState(filePath string) (InstanceConfigSet, error) {
+	// Log the file being parsed
+	p.logger.Info("Starting to parse file", "file_path", filePath)
+
+	// Read the content of the JSON state file
+	fileContent, err := os.ReadFile(filePath)
 	if err != nil {
-		p.logger.Error("Failed to read Terraform state file", "file_path", filePath, "error", err)
-		return nil, err
+		p.logger.Error("Failed to read JSON state file", "file_path", filePath, "error", err.Error())
+		return InstanceConfigSet{}, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	p.logger.Info("Read Terraform state file", "file_path", filePath, "size", len(data))
-
-	var state struct {
-		Resources []struct {
-			Mode      string `json:"mode"`
-			Type      string `json:"type"`
-			Name      string `json:"name"`
-			Provider  string `json:"provider"`
-			Instances []struct {
-				Attributes struct {
-					ID                 string            `json:"id"`
-					InstanceType       string            `json:"instance_type"`
-					Tags               map[string]string `json:"tags"`
-					SecurityGroups     []string          `json:"security_groups"`
-					SubnetID           string            `json:"subnet_id"`
-					IAMInstanceProfile string            `json:"iam_instance_profile"`
-				} `json:"attributes"`
-			} `json:"instances"`
-		} `json:"resources"`
+	// Parse JSON content
+	var state TFState
+	if err := json.Unmarshal(fileContent, &state); err != nil {
+		p.logger.Error("Failed to parse JSON state file", "file_path", filePath, "error", err.Error())
+		return InstanceConfigSet{}, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
-	if err := json.Unmarshal(data, &state); err != nil {
-		p.logger.Error("Failed to unmarshal Terraform state", "error", err)
-		return nil, err
-	}
+	// Log parsed Terraform version
+	p.logger.Info("Parsed Terraform state", "version", state.Version, "terraform_version", state.TerraformVersion)
 
-	p.logger.Info("Parsed Terraform state", "resource_count", len(state.Resources))
+	configSet := state.Resources.AWSInstance
 
-	var configs []entities.InstanceConfig
-	for _, resource := range state.Resources {
-		p.logger.Info("Processing resource", "mode", resource.Mode, "type", resource.Type, "name", resource.Name)
-		if resource.Mode == "managed" && resource.Type == "aws_instance" {
-			for _, instance := range resource.Instances {
-				trimmedID := strings.TrimSpace(instance.Attributes.ID)
-				p.logger.Info("Found aws_instance", "id", trimmedID)
+	// Log aggregated attributes
+	p.logger.Info("Parsed instance types", "instance_types", configSet.InstanceTypes)
+	p.logger.Info("Parsed AMIs", "amis", configSet.AMIs)
+	p.logger.Info("Parsed availability zones", "availability_zones", configSet.AvailabilityZones)
+	p.logger.Info("Parsed key names", "key_names", configSet.KeyNames)
+	p.logger.Info("Parsed security groups", "security_groups", configSet.SecurityGroupIDs)
+	p.logger.Info("Parsed subnet IDs", "subnet_ids", configSet.SubnetIDs)
+	p.logger.Info("Parsed IAM instance profiles", "iam_instance_profiles", configSet.IAMInstanceProfiles)
+	p.logger.Info("Parsed tag names", "tag_names", configSet.TagNames)
+	p.logger.Info("Parsed tag environments", "tag_environments", configSet.TagEnvironments)
+	p.logger.Info("Parsed EBS volume sizes", "ebs_volume_sizes", configSet.EBSVolumeSizes)
+	p.logger.Info("Parsed EBS volume types", "ebs_volume_types", configSet.EBSVolumeTypes)
 
-				// Optional: Debug print to ensure no hidden characters
-				fmt.Println("TF Instance ID:", fmt.Sprintf("%q", trimmedID))
-
-				configs = append(configs, entities.InstanceConfig{
-					InstanceID:         trimmedID,
-					InstanceType:       strings.TrimSpace(instance.Attributes.InstanceType),
-					Tags:               instance.Attributes.Tags,
-					SecurityGroupIDs:   instance.Attributes.SecurityGroups,
-					SubnetID:           strings.TrimSpace(instance.Attributes.SubnetID),
-					IAMInstanceProfile: strings.TrimSpace(instance.Attributes.IAMInstanceProfile),
-				})
-			}
-		}
-	}
-
-	p.logger.Info("Returning parsed configs", "count", len(configs))
-	return configs, nil
+	p.logger.Info("Returning parsed config set")
+	return configSet, nil
 }
