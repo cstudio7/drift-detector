@@ -40,6 +40,21 @@ type InstanceConfigSet struct {
 	EBSVolumeTypes      []string `json:"ebs_volume_types"`
 }
 
+// IsEmpty checks if an InstanceConfigSet is empty.
+func (c InstanceConfigSet) IsEmpty() bool {
+	return len(c.InstanceTypes) == 0 &&
+		len(c.AMIs) == 0 &&
+		len(c.AvailabilityZones) == 0 &&
+		len(c.KeyNames) == 0 &&
+		len(c.SecurityGroupIDs) == 0 &&
+		len(c.SubnetIDs) == 0 &&
+		len(c.IAMInstanceProfiles) == 0 &&
+		len(c.TagNames) == 0 &&
+		len(c.TagEnvironments) == 0 &&
+		len(c.EBSVolumeSizes) == 0 &&
+		len(c.EBSVolumeTypes) == 0
+}
+
 // TFState represents the structure of the simplified Terraform state file.
 type TFState struct {
 	Version          int    `json:"version"`
