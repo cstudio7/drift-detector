@@ -11,7 +11,7 @@ import (
 	customaws "github.com/cstudio7/drift-detector/internal/third_party/aws"
 	"github.com/cstudio7/drift-detector/internal/third_party/logger"
 	"github.com/cstudio7/drift-detector/internal/usecases"
-	"math/rand/v2" // Updated import
+	"math/rand/v2"
 )
 
 // DriftCommand handles the CLI commands for the drift detector.
@@ -39,9 +39,6 @@ func (c *DriftCommand) Run(args []string) error {
 	}
 
 	action := args[0]
-
-	// Note: rand/v2 automatically seeds the global generator, so no need for explicit seeding
-	// Removed: rand.Seed(time.Now().UnixNano())
 
 	switch action {
 	case "up":
@@ -160,10 +157,11 @@ func (c *DriftCommand) Run(args []string) error {
 		c.logger.Info("EC2 instance terminated successfully", "instance_id", instanceID)
 
 	case "detect":
-		if len(args) < 2 {
-			return fmt.Errorf("please provide the path to the Terraform state (.tfstate) file")
+		// Use a default Terraform state file if none is provided
+		tfStateFile := "terraform.tfstate" // Default file
+		if len(args) >= 2 {
+			tfStateFile = args[1] // Override with provided file if given
 		}
-		tfStateFile := args[1]
 
 		// Initialize AWS client for drift detection
 		awsClient, err := customaws.NewLiveAWSClient(c.ctx, c.logger)

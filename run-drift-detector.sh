@@ -10,9 +10,16 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
-if [ ! -f "terraform.tfstate" ]; then
-    echo "Error: terraform.tfstate file not found in the current directory."
-    echo "Please create a terraform.tfstate file for drift detection."
+# Use the provided Terraform state file or default to terraform.tfstate
+TF_STATE_FILE="terraform.tfstate"
+if [ $# -ge 1 ]; then
+    TF_STATE_FILE="$1"
+fi
+
+# Check if the Terraform state file exists
+if [ ! -f "$TF_STATE_FILE" ]; then
+    echo "Error: Terraform state file '$TF_STATE_FILE' not found in the current directory."
+    echo "Please provide a valid Terraform state file or ensure 'terraform.tfstate' exists."
     exit 1
 fi
 
@@ -52,9 +59,9 @@ trap cleanup EXIT
 #sleep 30
 
 # Step 2: Detect drift (detect) with retries
-echo "Detecting drift..."
+echo "Detecting drift using file: $TF_STATE_FILE..."
 for i in {1..3}; do
-    if go run cmd/drift-detector/main.go detect terraform.tfstate; then
+    if go run cmd/drift-detector/main.go detect "$TF_STATE_FILE"; then
         break
     else
         echo "Drift detection failed, retrying ($i/3)..."
