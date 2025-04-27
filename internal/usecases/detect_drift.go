@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
-	"github.com/cstudio7/drift-detector/internal/interfaces/aws"
-	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
-	"github.com/cstudio7/drift-detector/internal/interfaces/terraform"
+	"github.com/cstudio7/drift-detector/internal/third_party/aws"
+	"github.com/cstudio7/drift-detector/internal/third_party/logger"
+	"github.com/cstudio7/drift-detector/internal/third_party/terraform"
 )
 
 // DriftDetector is responsible for detecting drift between AWS and Terraform state.

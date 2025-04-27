@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
-	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
+	"github.com/cstudio7/drift-detector/internal/third_party/logger"
 )
 
 // LiveAWSClient is an implementation of AWSClient that interacts with live AWS services.

@@ -23,7 +23,7 @@ func getTestDataPath(filename string) (string, error) {
 		return "", fmt.Errorf("failed to get caller information")
 	}
 	// Navigate to the testdata directory at the project root
-	// internal/interfaces/aws/ec2.go -> testdata/
+	// internal/third_party/aws/ec2.go -> testdata/
 	baseDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(callerFile)))) // Up four levels to project root
 	testDataPath := filepath.Join(baseDir, "testdata", filename)
 	return testDataPath, nil
