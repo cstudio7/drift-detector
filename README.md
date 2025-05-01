@@ -90,6 +90,45 @@ drift-detector/
 └── README.md                         # Documentation
 ```
 
+# Drift Detector
+
+Drift Detector is a tool that detects infrastructure drift between deployed AWS resources and Terraform state.
+
+## Project Structure
+
+```text
+drift-detector/
+├── cmd/
+│   └── drift-detector/
+│       └── main.go               # Main application entry point
+├── internal/
+│   ├── domain/
+│   │   ├── entities/
+│   │   │   └── instance_config.go    # InstanceConfig type definition
+│   │   └── services/                 # Business logic for drift detection (not modified)
+│   ├── interfaces/
+│   │   ├── aws/
+│   │   │   ├── client.go             # AWSClient interface and LiveAWSClient implementation
+│   │   │   ├── client_test.go        # Tests for LiveAWSClient
+│   │   │   └── ec2.go                # EC2Client interface and implementation
+│   │   ├── logger/                   # Logger interface (not modified)
+│   │   └── terraform/                # Terraform interface (not modified)
+│   └── usecases/                     # Drift detection logic (not modified)
+├── pkg/
+│   └── aws/
+│       ├── aws.go                      # AWS SDK initialization logic and helpers
+│       │             
+│       └── ec2/
+│           ├── ec2.go               # Type aliases and model wrappers for EC2 types
+│                 
+├── .env                              # AWS credentials (not committed)
+├── terraform.tfstate                 # Terraform state file for drift detection
+├── run-drift-detector.sh             # Script to automate the workflow
+├── go.mod                            # Go module file
+├── go.sum                            # Go dependencies
+└── README.md                         # Documentation
+```
+
 Setup Instructions
 ------------------
 
@@ -281,3 +320,7 @@ Best Practices
 
 Result
 --------------
+Test
+![Screenshot 2025-05-01 at 1.33.44 PM.png](../../../../var/folders/7x/1k1m5gdn6hn0bh7s914rvz6w0000gn/T/TemporaryItems/NSIRD_screencaptureui_Rgv6Qr/Screenshot%202025-05-01%20at%201.33.44%E2%80%AFPM.png)
+
+![Screenshot 2025-05-01 at 1.32.58 PM.png](../../../../var/folders/7x/1k1m5gdn6hn0bh7s914rvz6w0000gn/T/TemporaryItems/NSIRD_screencaptureui_BjJVMJ/Screenshot%202025-05-01%20at%201.32.58%E2%80%AFPM.png)
