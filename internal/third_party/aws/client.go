@@ -3,10 +3,10 @@ package aws
 import (
 	"context"
 	"fmt"
+	"github.com/cstudio7/drift-detector/pkg/aws"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
 	"github.com/cstudio7/drift-detector/internal/third_party/logger"
-	"github.com/cstudio7/drift-detector/pkg/aws"
 )
 
 // LiveAWSClient is an implementation of AWSClient that interacts with live AWS services.

@@ -2,18 +2,14 @@ package aws
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-
+	"encoding/json"
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
+	"github.com/cstudio7/drift-detector/pkg/aws"
 )
 
 // getTestDataPath resolves the path to the testdata directory dynamically.
@@ -23,7 +19,6 @@ func getTestDataPath(filename string) (string, error) {
 		return "", fmt.Errorf("failed to get caller information")
 	}
 	// Navigate to the testdata directory at the project root
-	// internal/third_party/aws/ec2.go -> testdata/
 	baseDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(callerFile)))) // Up four levels to project root
 	testDataPath := filepath.Join(baseDir, "testdata", filename)
 	return testDataPath, nil
@@ -31,26 +26,28 @@ func getTestDataPath(filename string) (string, error) {
 
 // EC2Client defines the interface for interacting with AWS EC2.
 type EC2Client interface {
-	GetInstance(ctx context.Context, instanceID string) (*awstypes.Instance, error)
+	GetInstance(ctx context.Context, instanceID string) (*aws.Instance, error)
 	CreateInstance(ctx context.Context, amiID, instanceType, subnetID, keyName string) (string, error)
 	TerminateInstance(ctx context.Context, instanceID string) error
-	ToInstanceConfig(instance *awstypes.Instance) entities.InstanceConfig
+	ToInstanceConfig(instance *aws.Instance) entities.InstanceConfig
+	Client() *aws.EC2Client // Added Client method to the interface
 }
 
 // EC2ClientImpl is the implementation of EC2Client.
 type EC2ClientImpl struct {
-	client  *ec2.Client
-	useMock bool // Flag to toggle between live and mock behavior
+	client  *aws.EC2Client
+	useMock bool
 }
 
 // NewEC2Client creates a new EC2ClientImpl.
 func NewEC2Client(ctx context.Context, useMock bool) (*EC2ClientImpl, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	client, err := aws.Initialize(ctx) // Ensure AWS initialize method is defined in your code
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to initialize AWS client: %w", err)
 	}
+
 	return &EC2ClientImpl{
-		client:  ec2.NewFromConfig(cfg),
+		client:  client,
 		useMock: useMock,
 	}, nil
 }
@@ -63,16 +60,16 @@ func (c *EC2ClientImpl) CreateInstance(ctx context.Context, amiID, instanceType,
 	}
 
 	// Live AWS request to create an instance
-	input := &ec2.RunInstancesInput{
+	input := &aws.RunInstancesInput{
 		ImageId:      aws.String(amiID),
-		InstanceType: awstypes.InstanceType(instanceType),
+		InstanceType: aws.InstanceType(instanceType),
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
 		SubnetId:     aws.String(subnetID),
-		TagSpecifications: []awstypes.TagSpecification{
+		TagSpecifications: []aws.TagSpecification{
 			{
-				ResourceType: awstypes.ResourceTypeInstance,
-				Tags: []awstypes.Tag{
+				ResourceType: aws.ResourceTypeInstance,
+				Tags: []aws.Tag{
 					{Key: aws.String("Name"), Value: aws.String("test-instance")},
 				},
 			},
@@ -105,7 +102,7 @@ func (c *EC2ClientImpl) TerminateInstance(ctx context.Context, instanceID string
 	}
 
 	// Live AWS request to terminate the instance
-	input := &ec2.TerminateInstancesInput{
+	input := &aws.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	}
 
@@ -118,7 +115,7 @@ func (c *EC2ClientImpl) TerminateInstance(ctx context.Context, instanceID string
 }
 
 // GetInstance retrieves an EC2 instance by ID.
-func (c *EC2ClientImpl) GetInstance(ctx context.Context, instanceID string) (*awstypes.Instance, error) {
+func (c *EC2ClientImpl) GetInstance(ctx context.Context, instanceID string) (*aws.Instance, error) {
 	if c.useMock {
 		// Mock implementation for testing
 		filePath, err := getTestDataPath("sample-ec2.json")
@@ -133,7 +130,7 @@ func (c *EC2ClientImpl) GetInstance(ctx context.Context, instanceID string) (*aw
 
 		var resp struct {
 			Reservations []struct {
-				Instances []awstypes.Instance
+				Instances []aws.Instance
 			}
 		}
 		if err := json.Unmarshal(data, &resp); err != nil {
@@ -152,7 +149,7 @@ func (c *EC2ClientImpl) GetInstance(ctx context.Context, instanceID string) (*aw
 	}
 
 	// Live AWS request
-	input := &ec2.DescribeInstancesInput{
+	input := &aws.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}
 
@@ -174,10 +171,10 @@ func (c *EC2ClientImpl) GetInstance(ctx context.Context, instanceID string) (*aw
 }
 
 // ToInstanceConfig converts an EC2 instance to an InstanceConfig struct.
-func (c *EC2ClientImpl) ToInstanceConfig(instance *awstypes.Instance) entities.InstanceConfig {
+func (c *EC2ClientImpl) ToInstanceConfig(instance *aws.Instance) entities.InstanceConfig {
 	config := entities.InstanceConfig{
-		InstanceID:         aws.ToString(instance.InstanceId),
-		InstanceType:       string(instance.InstanceType),
+		InstanceID:         aws.ToString(instance.InstanceId), // Correct usage of aws.ToString
+		InstanceType:       string(instance.InstanceType),     // Correct reference to instance type
 		Tags:               make(map[string]string),
 		SecurityGroupIDs:   make([]string, 0),
 		SubnetID:           "",
@@ -202,7 +199,7 @@ func (c *EC2ClientImpl) ToInstanceConfig(instance *awstypes.Instance) entities.I
 	return config
 }
 
-// Client returns the underlying ec2.Client for direct access (if needed).
-func (c *EC2ClientImpl) Client() *ec2.Client {
+// Client returns the underlying aws.EC2Client for direct access.
+func (c *EC2ClientImpl) Client() *aws.EC2Client {
 	return c.client
 }
