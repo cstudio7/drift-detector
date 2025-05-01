@@ -321,6 +321,8 @@ Best Practices
 Result
 --------------
 Test
-![Screenshot 2025-05-01 at 1.33.44 PM.png](../../../../var/folders/7x/1k1m5gdn6hn0bh7s914rvz6w0000gn/T/TemporaryItems/NSIRD_screencaptureui_Rgv6Qr/Screenshot%202025-05-01%20at%201.33.44%E2%80%AFPM.png)
+<img width="987" alt="Screenshot 2025-05-01 at 1 36 38 PM" src="https://github.com/user-attachments/assets/1b778075-0430-49e9-9ca6-79ef3c2e494e" />
 
-![Screenshot 2025-05-01 at 1.32.58 PM.png](../../../../var/folders/7x/1k1m5gdn6hn0bh7s914rvz6w0000gn/T/TemporaryItems/NSIRD_screencaptureui_BjJVMJ/Screenshot%202025-05-01%20at%201.32.58%E2%80%AFPM.png)
+
+Output
+<img width="1335" alt="Screenshot 2025-05-01 at 1 37 42 PM" src="https://github.com/user-attachments/assets/71214eaa-9a4a-428e-8b91-e405ef15d038" />
