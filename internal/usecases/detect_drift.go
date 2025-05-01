@@ -27,7 +27,7 @@ func NewDriftDetector(awsClient aws.AWSClient, logger logger.Logger) *DriftDetec
 	}
 }
 
-// Getter methods for testing
+// AWSClient Getter methods for testing
 func (d *DriftDetector) AWSClient() aws.AWSClient {
 	return d.awsClient
 }

@@ -93,9 +93,9 @@ drift-detector/
 Setup Instructions
 ------------------
 
-1.  git clone cd drift-detector
+1.  `git clone` cd drift-detector
 
-2.  go mod tidy
+2.  `go mod tidy`
 
 3.  AWS_ACCESS_KEY_ID=your-access-key-id
     AWS_SECRET_ACCESS_KEY=your-secret-access-key   
@@ -111,6 +111,7 @@ Setup Instructions
        AWS_SECRET_ACCESS_KEY=
        AWS_REGION=us-east-1
        SUBNET_IDS=
+
 4.  { "Version": "2012-10-17", "Statement": \[ { "Effect": "Allow", "Action": \[ "ec2:DescribeInstances" \], "Resource": "\*" } \]}Test your credentials:aws sts get-caller-identity --region us-east-2
 
 5.  { "version": 4, "terraform\_version": "1.0.0", "serial": 1, "lineage": "fake-lineage", "outputs": {}, "resources": \[ { "mode": "managed", "type": "aws\_instance", "name": "example", "provider": "provider\[\\"registry.terraform.io/hashicorp/aws\\"\]", "instances": \[ { "attributes": { "id": "i-0987654321fedcba0", "instance\_type": "t2.micro", "tags": { "Name": "example-instance" }, "subnet\_id": "subnet-0fd29464681088be4", "security\_groups": \["sg-0a1b2c3d4e5f6g7h8"\], "iam\_instance\_profile": "" } } \] } \]}
@@ -150,7 +151,11 @@ The application can be run in two ways: manually (using individual commands) or 
 
 The run-drift-detector.sh script automates the workflow:   
 
- `  ./run-drift-detector.sh `  
+ `./run-drift-detector.sh`  
+
+ this works provided 
+- you have have your env set
+- and you have a list of EC2 instances on your AWS, else you can uncomment in the  `./run-drift-detector.sh`  STEP 1 and 3 which only creates a list of instances in a situation where the user doesn't have any
 
 *   **What the Script Does**:
 
@@ -158,7 +163,7 @@ The run-drift-detector.sh script automates the workflow:
 
    *   Runs the detect command to check for drift (with up to 3 retries).
 
-*   Listing existing EC2 instances...2025/04/24 00:00:00 \[INFO\] Found EC2 instances count=2Existing EC2 instances:- i-0abcdef1234567890- i-1bcdef234567890aDetecting drift...2025/04/24 00:00:00 \[INFO\] Fetching EC2 instance configurations from AWS2025/04/24 00:00:00 \[INFO\] Fetched instance instance\_id=i-0abcdef12345678902025/04/24 00:00:00 \[INFO\] Fetched instance instance\_id=i-1bcdef234567890a2025/04/24 00:00:00 \[INFO\] Completed fetching EC2 instance configurations count=22025/04/24 00:00:00 \[INFO\] Drift detected: Instance not found in Terraform state instance\_id=i-0abcdef12345678902025/04/24 00:00:00 \[INFO\] Drift detected: Instance not found in Terraform state instance\_id=i-1bcdef234567890aDrift detection completed successfullyApplication run completed successfully.
+
 
 
 Testing the Application
@@ -273,3 +278,6 @@ Best Practices
 5.  **Regularly Review Instances**:
 
    *   Periodically check your AWS account for unused or unnecessary EC2 instances to avoid unexpected costs.
+
+Result
+--------------

@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"github.com/cstudio7/drift-detector/internal/domain/entities"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,9 +18,9 @@ import (
 // DriftCommand handles the CLI commands for the drift detector.
 type DriftCommand struct {
 	logger    logger.Logger
-	awsClient customaws.AWSClient // For drift detection
-	ec2Client customaws.EC2Client // For setup/teardown
-	detector  *usecases.DriftDetector
+	awsClient customaws.AWSClient     // For drift detection
+	ec2Client customaws.EC2Client     // For setup/teardown
+	detector  *usecases.DriftDetector // Review interface
 	ctx       context.Context
 }
 
@@ -59,7 +60,7 @@ func (c *DriftCommand) Run(args []string) error {
 		}
 		amiResult, err := ec2Client.Client().DescribeImages(c.ctx, amiFilter)
 		if err != nil {
-			return fmt.Errorf("failed to fetch AMIs: %w", err)
+			return fmt.Errorf("failed to fetch AMIs: %w", entities.ErrFailedToFetchAMIs)
 		}
 		var amiIDs []string
 		for _, image := range amiResult.Images {
@@ -68,7 +69,7 @@ func (c *DriftCommand) Run(args []string) error {
 			}
 		}
 		if len(amiIDs) == 0 {
-			return fmt.Errorf("no AMIs found")
+			return fmt.Errorf("no AMIs found: %w", entities.ErrNoAMIsFound)
 		}
 
 		// Define instance types
@@ -80,7 +81,7 @@ func (c *DriftCommand) Run(args []string) error {
 		// Dynamically fetch subnets
 		subnetResult, err := ec2Client.Client().DescribeSubnets(c.ctx, &ec2.DescribeSubnetsInput{})
 		if err != nil {
-			return fmt.Errorf("failed to fetch subnets: %w", err)
+			return fmt.Errorf("failed to fetch subnets: %w", entities.ErrFailedToFetchSubnets)
 		}
 		var subnetIDs []string
 		for _, subnet := range subnetResult.Subnets {
@@ -89,13 +90,13 @@ func (c *DriftCommand) Run(args []string) error {
 			}
 		}
 		if len(subnetIDs) == 0 {
-			return fmt.Errorf("no subnets found")
+			return fmt.Errorf("failed to fetch key pairs: %w", entities.ErrNoSubnetsFound)
 		}
 
 		// Dynamically fetch key pairs
 		keyResult, err := ec2Client.Client().DescribeKeyPairs(c.ctx, &ec2.DescribeKeyPairsInput{})
 		if err != nil {
-			return fmt.Errorf("failed to fetch key pairs: %w", err)
+			return fmt.Errorf("failed to fetch key pairs: %w", entities.ErrFailedToFetchKeyPairs)
 		}
 		keyNames := []string{""}
 		for _, keyPair := range keyResult.KeyPairs {
@@ -121,7 +122,7 @@ func (c *DriftCommand) Run(args []string) error {
 		// Create the EC2 instance
 		instanceID, err := c.createEC2Instance(amiID, instanceType, subnetID, keyName)
 		if err != nil {
-			return fmt.Errorf("failed to create EC2 instance: %w", err)
+			return fmt.Errorf("failed to create EC2 client: %w", entities.ErrFailedToCreateEC2Client)
 		}
 
 		c.logger.Info("EC2 instance created successfully", "instance_id", instanceID)
@@ -129,7 +130,7 @@ func (c *DriftCommand) Run(args []string) error {
 		// Wait for the instance to be running
 		err = c.waitForInstanceRunning(instanceID)
 		if err != nil {
-			return fmt.Errorf("failed to wait for instance to be running: %w", err)
+			return fmt.Errorf("timeout waiting for instance %s to be running: %w", instanceID, entities.ErrFailedToWaitForInstance)
 		}
 
 		c.logger.Info("EC2 instance is now running and ready for testing")
@@ -137,21 +138,22 @@ func (c *DriftCommand) Run(args []string) error {
 
 	case "down":
 		if len(args) < 2 {
-			return fmt.Errorf("please provide the instance ID to terminate")
+			return entities.ErrMissingInstanceID
 		}
 		instanceID := args[1]
 
 		// Initialize EC2 client for setup/teardown
 		ec2Client, err := customaws.NewEC2Client(c.ctx, false)
 		if err != nil {
-			return fmt.Errorf("failed to create EC2 client: %w", err)
+			return fmt.Errorf("failed to create instance: %w", entities.ErrFailedToCreateInstance)
 		}
 		c.ec2Client = ec2Client
 
 		// Terminate the EC2 instance
 		err = ec2Client.TerminateInstance(c.ctx, instanceID)
 		if err != nil {
-			return fmt.Errorf("failed to terminate EC2 instance: %w", err)
+			return fmt.Errorf("failed to terminate EC2 instance: %w", entities.ErrFailedToTerminateInstance)
+
 		}
 
 		c.logger.Info("EC2 instance terminated successfully", "instance_id", instanceID)
@@ -160,13 +162,13 @@ func (c *DriftCommand) Run(args []string) error {
 		// Use a default Terraform state file if none is provided
 		tfStateFile := "terraform.tfstate" // Default file
 		if len(args) >= 2 {
-			tfStateFile = args[1] // Override with provided file if given
+			tfStateFile = args[1]
 		}
 
 		// Initialize AWS client for drift detection
 		awsClient, err := customaws.NewLiveAWSClient(c.ctx, c.logger)
 		if err != nil {
-			return fmt.Errorf("failed to create AWS client: %w", err)
+			return fmt.Errorf("failed to create AWS Instance: %w", entities.ErrFailedToCreateInstance)
 		}
 		c.awsClient = awsClient
 
@@ -176,7 +178,7 @@ func (c *DriftCommand) Run(args []string) error {
 		// Perform drift detection
 		err = c.detector.DetectDrift(tfStateFile)
 		if err != nil {
-			return fmt.Errorf("drift detection failed: %w", err)
+			return fmt.Errorf("%w: %v", entities.ErrDriftDetectionFailed, err)
 		}
 
 		c.logger.Info("Drift detection completed successfully")
@@ -192,7 +194,7 @@ func (c *DriftCommand) Run(args []string) error {
 func (c *DriftCommand) createEC2Instance(amiID, instanceType, subnetID, keyName string) (string, error) {
 	instanceID, err := c.ec2Client.CreateInstance(c.ctx, amiID, instanceType, subnetID, keyName)
 	if err != nil {
-		return "", fmt.Errorf("failed to create instance: %w", err)
+		return "", fmt.Errorf("failed to create instance: %w", entities.ErrFailedToCreateInstance)
 	}
 	return instanceID, nil
 }
@@ -214,5 +216,6 @@ func (c *DriftCommand) waitForInstanceRunning(instanceID string) error {
 		time.Sleep(10 * time.Second) // Wait 10 seconds between checks
 	}
 
-	return fmt.Errorf("timeout waiting for instance %s to be running", instanceID)
+	return fmt.Errorf("timeout waiting for instance %s to be running: %w", instanceID, entities.ErrFailedToWaitForInstance)
+
 }
