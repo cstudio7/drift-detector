@@ -64,32 +64,6 @@ Project Structure
 
 ### The project is organized as follows:
 
-```text
-drift-detector/
-├── cmd/
-│   └── drift-detector/
-│       └── main.go               # Main application entry point
-├── internal/
-│   ├── domain/
-│   │   ├── entities/
-│   │   │   └── instance_config.go    # InstanceConfig type definition
-│   │   └── services/                 # Business logic for drift detection (not modified)
-│   ├── interfaces/
-│   │   ├── aws/
-│   │   │   ├── client.go             # AWSClient interface and LiveAWSClient implementation
-│   │   │   ├── client_test.go        # Tests for LiveAWSClient
-│   │   │   └── ec2.go                # EC2Client interface and implementation
-│   │   ├── logger/                   # Logger interface (not modified)
-│   │   └── terraform/                # Terraform interface (not modified)
-│   └── usecases/                     # Drift detection logic (not modified)
-├── .env                              # AWS credentials (not committed)
-├── terraform.tfstate                 # Terraform state file for drift detection
-├── run-drift-detector.sh             # Script to automate the workflow
-├── go.mod                            # Go module file
-├── go.sum                            # Go dependencies
-└── README.md                         # Documentation
-```
-
 # Drift Detector
 
 Drift Detector is a tool that detects infrastructure drift between deployed AWS resources and Terraform state.
