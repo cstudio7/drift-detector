@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cstudio7/drift-detector/internal/third_party/logger"
+	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 )
 
 // TFStateParser defines the interface for parsing Terraform state files.

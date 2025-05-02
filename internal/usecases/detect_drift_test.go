@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
-	"github.com/cstudio7/drift-detector/internal/third_party/aws"
-	"github.com/cstudio7/drift-detector/internal/third_party/logger"
-	"github.com/cstudio7/drift-detector/internal/third_party/terraform"
+	"github.com/cstudio7/drift-detector/internal/interfaces/aws"
+	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
+	"github.com/cstudio7/drift-detector/internal/interfaces/terraform"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -8,8 +8,8 @@ import (
 	"math/rand/v2"
 
 	"github.com/cstudio7/drift-detector/internal/domain/entities"
-	awsClient "github.com/cstudio7/drift-detector/internal/third_party/aws"
-	"github.com/cstudio7/drift-detector/internal/third_party/logger"
+	awsClient "github.com/cstudio7/drift-detector/internal/interfaces/aws"
+	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 	"github.com/cstudio7/drift-detector/internal/usecases"
 	awsSDK "github.com/cstudio7/drift-detector/pkg/aws"
 )

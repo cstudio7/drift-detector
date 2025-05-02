@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/cstudio7/drift-detector/internal/commands"
-	"github.com/cstudio7/drift-detector/internal/third_party/logger"
+	"github.com/cstudio7/drift-detector/internal/interfaces/logger"
 	"github.com/joho/godotenv"
 )
 

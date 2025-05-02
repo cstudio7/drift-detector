@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	_ "github.com/cstudio7/drift-detector/internal/third_party/logger" // Blank identifier to suppress unused import warning
+	_ "github.com/cstudio7/drift-detector/internal/interfaces/logger" // Blank identifier to suppress unused import warning
 	"github.com/stretchr/testify/assert"
 )
 
