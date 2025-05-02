@@ -27,6 +27,10 @@ Table of Contents
 
 *   Best Practices
 
+*   Output
+
+*   Future Work and Improvements for Drift Detector 
+
 
 Prerequisites
 -------------
@@ -293,3 +297,42 @@ Output
 <img width="1335" alt="Screenshot 2025-05-01 at 1 37 42 PM" src="https://github.com/user-attachments/assets/71214eaa-9a4a-428e-8b91-e405ef15d038" />
 
 <img width="1440" alt="Screenshot 2025-05-02 at 6 43 43 AM" src="https://github.com/user-attachments/assets/ead9a4bf-5b65-4b17-99a5-b4477e960632" />
+
+
+Future Work and Improvements for Drift Detector
+===============================================
+
+This document outlines the current challenges faced by the drift-detector project and proposed improvements to enhance its functionality and robustness.
+
+Challenges
+----------
+
+*   **Not having EC2 for testing**: Testing the drift-detector is constrained by the lack of access to live EC2 instances. Since the tool compares AWS EC2 configurations with Terraform state files, the absence of EC2 instances limits realistic testing scenarios. This affects the ability to:
+
+    *   Validate drift detection against actual AWS API responses.
+
+    *   Test handling of edge cases, such as missing or malformed instance data.
+
+    *   Assess performance with large numbers of instances.
+
+    *   Simulate transient AWS API errors or network issues.Without EC2 instances, testing relies on mocked data, which may not fully capture real-world complexities. This challenge necessitates alternative testing strategies, such as using AWS sandbox environments or localstack, which require additional setup.
+
+
+Upcoming Works and Improvements
+-------------------------------
+
+*   **Reading multiple files leveraging Go dynamics**: Enhance the terraform.TFStateParser to support reading multiple Terraform state files concurrently. Currently, the detect command processes a single state file (e.g., terraform.tfstate). By leveraging Go's concurrency features, such as goroutines and channels, the tool can:
+
+    *   Parse multiple state files in parallel, improving performance for large infrastructure setups.
+
+    *   Aggregate configurations from multiple files (e.g., split by environment, module, or region) into a unified InstanceConfigSet.
+
+    *   Support complex workflows where Terraform state is distributed across files.This improvement would make the drift-detector more scalable and flexible, enabling users to detect drift across an entire infrastructure in a single command. Example implementation outline:
+
+    *   Modify ParseTFState to accept a slice of file paths.
+
+    *   Use a sync.WaitGroup and goroutines to parse files concurrently.
+
+    *   Collect results via a channel and merge into a single InstanceConfigSet.
+
+    *   Handle errors gracefully, logging issues for specific files without failing the entire process.
